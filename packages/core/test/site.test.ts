@@ -165,5 +165,8 @@ describe('标题处理', () => {
     expect(cleanPageTitle('日常穿搭分享 - 社区动态')).toBe('日常穿搭分享');
     expect(cleanPageTitle('测试视频 - 在线观看 - AcFan')).toBe('测试视频');
     expect(cleanPageTitle('无后缀标题')).toBe('无后缀标题');
+    // SPA 尚未写入真实标题时 title 就是站点名，视为「没有标题」
+    expect(cleanPageTitle('Ac_fan')).toBe('');
+    expect(cleanPageTitle('AcFan')).toBe('');
   });
 });

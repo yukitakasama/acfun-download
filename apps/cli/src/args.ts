@@ -31,6 +31,8 @@ export interface CliOptions {
   config?: string;
   ffmpeg?: string;
   ffprobe?: string;
+  chrome?: string;
+  channel?: 'auto' | 'ego' | 'chrome';
 }
 
 export interface OptionSpec {
@@ -116,6 +118,16 @@ export const OPTION_SPECS: readonly OptionSpec[] = [
   { key: 'config', flags: ['--config'], kind: 'string', metavar: '<path>', desc: '配置文件路径' },
   { key: 'ffmpeg', flags: ['--ffmpeg'], kind: 'string', metavar: '<path>', desc: 'ffmpeg 可执行文件路径' },
   { key: 'ffprobe', flags: ['--ffprobe'], kind: 'string', metavar: '<path>', desc: 'ffprobe 可执行文件路径' },
+  { key: 'chrome', flags: ['--chrome'], kind: 'string', metavar: '<path>', desc: 'Chrome/Edge 可执行文件路径（兜底通道）' },
+  {
+    key: 'channel',
+    flags: ['--channel'],
+    kind: 'string',
+    metavar: 'auto|ego|chrome',
+    desc: '浏览器通道（auto=ego 优先，不可用回落 Chrome）',
+    values: ['auto', 'ego', 'chrome'],
+    default: 'auto',
+  },
 ];
 
 export const COMMANDS = ['dl', 'parse', 'batch'] as const;

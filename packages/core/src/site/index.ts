@@ -143,7 +143,13 @@ export async function detectSite(input: string, opts: DetectOptions = {}): Promi
   }
   if (!res.ok) {
     const kind = res.status === 404 ? 'HTTP_404' : res.status === 403 ? 'HTTP_403' : 'PARSE_FAILED';
-    throw new AppError(kind, `页面返回 HTTP ${res.status}: ${target.url}`, { detail: res.text.slice(0, 300) });
+    throw new AppError(kind, `页面返回 HTTP ${res.status}: ${target.url}`, {
+      suggestion:
+        res.status >= 500
+          ? '站点返回 5xx：多为无效 id（该内容不存在）或边缘节点抖动。确认 id 有效后重试一轮。'
+          : undefined,
+      detail: res.text.slice(0, 300),
+    });
   }
 
   const detected = detectGenerationFromHtml(res.text);
@@ -165,9 +171,11 @@ export function looksLikeErrorTitle(title: string): boolean {
 
 /** 去掉站点标题里的后缀，拿到真正的标题。 */
 export function cleanPageTitle(raw: string): string {
-  const t = String(raw ?? '');
-  return t
+  const t = String(raw ?? '')
     .replace(/\s*[-–—|]\s*(社区动态|在线观看|AcFan|Ac_fun|AcFun|ACFUN)\s*$/i, '')
     .replace(/\s*[-–—|]\s*(社区动态|在线观看)\s*/gi, ' ')
     .trim();
+  // SPA 还没把标题写上来时，document.title 就是站点名本身，这种「标题」没有信息量。
+  if (/^(ac[ _-]?fan|acfun)$/i.test(t)) return '';
+  return t;
 }
