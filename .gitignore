@@ -1,0 +1,52 @@
+# ---- 下载产物（自测产物也不入库）----
+downloads/
+/output/
+*.part.mp4
+*.retry.mp4
+*.part.stale-*
+*.m3u8
+*.tsv
+acfun-work*/
+
+# ---- 依赖与构建 ----
+node_modules/
+.pnpm-store/
+dist/
+build/
+apps/web/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+*.tsbuildinfo
+
+# ---- 虚拟环境 / Python（以防后续加脚本）----
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# ---- 缓存 ----
+.cache/
+.vite/
+.turbo/
+coverage/
+.vitest/
+test-results/
+
+# ---- 本地配置 / 凭据（禁止入库）----
+.env
+.env.*
+config.local.json
+cookie*.txt
+cookies*.txt
+*_cookie[0-9]*.txt
+resume.json
+*.log
+logs/
+
+# ---- 编辑器 / 系统 ----
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+desktop.ini
