@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { CORE_VERSION } from '@acfun/core';
 import { helpText, parseArgs, resolveOptions, type CliOptions } from './args.js';
+import { runDownload } from './commands/dl.js';
 import { runParse } from './commands/parse.js';
 import { CliLog } from './io.js';
 
@@ -25,13 +26,27 @@ async function main(argv: readonly string[]): Promise<number> {
   const log = new CliLog({ json: opts.json, verbose: opts.verbose });
   const command = parsed.command ?? (parsed.inputs.length > 0 ? 'dl' : undefined);
 
+  // Ctrl+C：第一次中断并保留 .part（exit 130），第二次强制退出。
+  const controller = new AbortController();
+  let interrupted = false;
+  const onSignal = (): void => {
+    if (interrupted) {
+      process.stderr.write('\n再次中断：强制退出\n');
+      process.exit(130);
+    }
+    interrupted = true;
+    process.stderr.write('\n收到中断信号：正在停止（已下载部分保留为 .part，可用 --resume 继续）…\n');
+    controller.abort();
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGBREAK', onSignal);
+
   switch (command) {
     case 'parse':
       return runParse(parsed.inputs, opts, log);
     case 'dl':
     case 'batch':
-      log.error('下载命令尚未实现（M4/M5 里程碑）。先用 `acfun parse <url>` 验证解析层。');
-      return 1;
+      return runDownload(parsed.inputs, opts, log, controller.signal);
     default:
       process.stdout.write(`${helpText()}\n`);
       return 1;
