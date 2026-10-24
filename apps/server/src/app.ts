@@ -8,7 +8,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { checkMediaTools, egoStatus } from '@acfun/core';
+import { CORE_VERSION, checkMediaTools, egoStatus } from '@acfun/core';
 import { AppConfigSchema, type AppConfig } from './config.js';
 import { previewInput, type TaskManager } from './manager.js';
 
@@ -58,7 +58,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.get('/api/health', (c) =>
-    c.json({ ok: true, pid: process.pid, uptimeSec: Math.round(process.uptime()), version: '0.6.0' }),
+    c.json({ ok: true, pid: process.pid, uptimeSec: Math.round(process.uptime()), version: CORE_VERSION }),
   );
 
   // ---- 环境探测（设置页的黄色告警就用这个）----
