@@ -32,9 +32,35 @@ export interface RunnerOutcome {
   aborted: boolean;
 }
 
-function formatProgress(p: TaskProgress, totalSec?: number): string {
-  const total = totalSec && totalSec > 0 ? `${totalSec.toFixed(0)}s` : '?';
-  return `${p.percent.toFixed(1)}%  ${p.timeSec.toFixed(0)}s/${total}`;
+function formatBytes(n?: number): string {
+  if (!n || n <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(i >= 2 ? 1 : 0)}${units[i]}`;
+}
+
+function formatSpeed(bps?: number): string {
+  const b = formatBytes(bps);
+  return b ? `${b}/s` : '';
+}
+
+/** 进度行：百分比 + 段数 + 速度 + 已处理/已下载 + ETA（缺什么就少显示什么）。 */
+function formatProgress(p: TaskProgress): string {
+  const parts = [`${p.percent.toFixed(1)}%`];
+  if (p.segTotal) parts.push(`${p.segDone ?? 0}/${p.segTotal}段`);
+  const spd = formatSpeed(p.bytesPerSec);
+  if (spd) parts.push(spd);
+  const b = formatBytes(p.bytes);
+  if (b) parts.push(b);
+  if (p.timeSec > 0) parts.push(`已处理${Math.floor(p.timeSec / 60)}:${String(Math.floor(p.timeSec % 60)).padStart(2, '0')}`);
+  if (p.etaSec && p.etaSec > 0) parts.push(`约${Math.round(p.etaSec)}s`);
+  if (p.stalled) parts.push('等待数据…');
+  return parts.join('  ');
 }
 
 /** 跑完所有任务。结果顺序与输入顺序一致。 */

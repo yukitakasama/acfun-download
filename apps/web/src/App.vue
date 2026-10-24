@@ -63,12 +63,20 @@ function applyEvent(e: SseEvent): void {
     case 'progress': {
       const { taskId, progress } = e as unknown as {
         taskId: string;
-        progress: { percent: number; timeSec: number };
+        progress: TaskView;
       };
       const task = tasks.value.find((x) => x.id === taskId);
-      if (task) {
+      if (task && progress) {
+        // 全量合并：速度/字节/分片/ETA/卡住标记都要带上，否则界面永远只有一个百分比
         task.percent = progress.percent;
         task.timeSec = progress.timeSec;
+        task.bytes = progress.bytes;
+        task.bytesPerSec = progress.bytesPerSec;
+        task.speedX = progress.speedX;
+        task.etaSec = progress.etaSec;
+        task.stalled = progress.stalled;
+        task.segDone = progress.segDone;
+        task.segTotal = progress.segTotal;
       }
       break;
     }

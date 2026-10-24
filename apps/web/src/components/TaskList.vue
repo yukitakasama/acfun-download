@@ -2,14 +2,21 @@
 /** 任务队列 + 实时进度（PLAN Q12 第 2 块）。 */
 import { computed } from 'vue';
 import { api, type TaskView, type Stats } from '../api.js';
-import { ERROR_LABEL, formatBytes, formatDuration, formatTime, STATUS_LABEL } from '../utils.js';
+import {
+  ERROR_LABEL,
+  formatBytes,
+  formatDuration,
+  formatEta,
+  formatSpeed,
+  formatTime,
+  STATUS_LABEL,
+} from '../utils.js';
 
 const props = defineProps<{ tasks: TaskView[]; stats: Stats }>();
 const emit = defineEmits<{ (e: 'refresh'): void; (e: 'log', level: 'info' | 'warn' | 'error', msg: string): void }>();
 
-const running = computed(() =>
-  props.tasks.filter((t) => ['resolving', 'manifest', 'downloading', 'verifying'].includes(t.status)),
-);
+const ACTIVE = ['resolving', 'manifest', 'downloading', 'verifying'];
+const running = computed(() => props.tasks.filter((t) => ACTIVE.includes(t.status)));
 
 async function cancel(id: string): Promise<void> {
   try {
@@ -35,6 +42,16 @@ function statusClass(status: string): string {
   if (status === 'failed') return 'err';
   if (status === 'skipped' || status === 'canceled') return 'muted';
   return 'run';
+}
+
+/** 百分比必须是有限数：NaN 会让 width 失效、整条变成「满格」。 */
+function pct(t: TaskView): number {
+  return Number.isFinite(t.percent) ? Math.min(100, Math.max(0, t.percent)) : 0;
+}
+
+/** 什么时候显示进度条：下载/核验中，或已经有过进度。 */
+function showProgress(t: TaskView): boolean {
+  return ACTIVE.includes(t.status) || (Number.isFinite(t.percent) && t.percent > 0);
 }
 </script>
 
@@ -62,14 +79,26 @@ function statusClass(status: string): string {
           <span class="time">{{ formatTime(t.createdAt) }}</span>
         </div>
 
-        <div class="bar" v-if="['downloading', 'verifying', 'resolving'].includes(t.status) || t.percent > 0">
-          <div class="fill" :style="{ width: Math.min(100, Math.max(0, t.percent)) + '%' }" />
-          <span class="pct">{{ t.percent.toFixed(1) }}%</span>
+        <!-- 进度：条 + 百分比 + 速度 + 分片 + 已处理/剩余（百分比移出 bar，避免被 overflow 裁掉） -->
+        <div v-if="showProgress(t)" class="prog">
+          <div class="bar" :class="{ waiting: t.stalled, verifying: t.status === 'verifying' }">
+            <div class="fill" :style="{ width: `${pct(t)}%` }" />
+          </div>
+          <div class="prog-line">
+            <span class="pct">{{ pct(t).toFixed(1) }}%</span>
+            <span v-if="t.status === 'verifying'" class="hint">核验中（全片解码，可能较慢）…</span>
+            <span v-else-if="t.stalled" class="hint warn">等待数据…</span>
+            <span v-if="t.bytesPerSec" class="speed" title="实时下载速度">{{ formatSpeed(t.bytesPerSec) }}</span>
+            <span v-if="t.segTotal" class="segs">{{ t.segDone ?? 0 }}/{{ t.segTotal }} 段</span>
+            <span v-if="t.bytes" class="bytes">{{ formatBytes(t.bytes) }}</span>
+            <span v-if="t.timeSec > 0" class="media">已处理 {{ formatDuration(t.timeSec) }}</span>
+            <span v-if="t.etaSec" class="eta">{{ formatEta(t.etaSec) }}</span>
+          </div>
         </div>
 
         <div class="meta">
-          <span v-if="t.percent > 0">已处理 {{ formatDuration(t.timeSec) }}</span>
           <span v-if="t.fileSize">{{ formatBytes(t.fileSize) }}</span>
+          <span v-if="t.status === 'resolving'">解析页面与清单…</span>
           <span v-if="t.attempts > 1">第 {{ t.attempts }} 轮</span>
           <span v-if="t.outputPath" class="path" :title="t.outputPath">{{ t.outputPath }}</span>
         </div>
@@ -81,14 +110,7 @@ function statusClass(status: string): string {
         </div>
 
         <div class="actions">
-          <button
-            v-if="['queued', 'resolving', 'manifest', 'downloading', 'verifying'].includes(t.status)"
-            small
-            ghost
-            @click="cancel(t.id)"
-          >
-            取消
-          </button>
+          <button v-if="ACTIVE.includes(t.status) || t.status === 'queued'" small ghost @click="cancel(t.id)">取消</button>
           <button v-if="['failed', 'canceled', 'skipped'].includes(t.status)" small @click="retry(t.id)">重试</button>
         </div>
       </li>
@@ -216,27 +238,84 @@ h2 {
   font-size: 12px;
 }
 
+/* ---- 进度 ---- */
+.prog {
+  margin: 8px 0 6px;
+}
+
 .bar {
-  position: relative;
   height: 6px;
   background: #0b0d12;
   border-radius: 999px;
-  margin: 8px 0 6px;
   overflow: hidden;
 }
 
 .fill {
   height: 100%;
+  min-width: 0;
   background: linear-gradient(90deg, var(--accent-2), var(--accent));
-  transition: width 0.3s;
+  transition: width 0.25s linear;
+}
+
+.bar.waiting .fill {
+  background: repeating-linear-gradient(45deg, #48506a, #48506a 6px, #5a6480 6px, #5a6480 12px);
+}
+
+.bar.verifying .fill {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(62, 207, 142, 0.55),
+    rgba(62, 207, 142, 0.55) 6px,
+    rgba(62, 207, 142, 0.85) 6px,
+    rgba(62, 207, 142, 0.85) 12px
+  );
+  animation: stripes 1s linear infinite;
+  background-size: 24px 24px;
+}
+
+@keyframes stripes {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 24px 0;
+  }
+}
+
+.prog-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .pct {
-  position: absolute;
-  right: 0;
-  top: -18px;
-  font-size: 11px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.speed {
+  color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.segs,
+.bytes,
+.media,
+.eta {
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
   color: var(--muted);
+}
+
+.hint.warn {
+  color: var(--warn);
 }
 
 .meta {

@@ -30,6 +30,14 @@ export interface TaskView {
   status: TaskStatus;
   percent: number;
   timeSec: number;
+  /** 已写入字节 / 实时速度 / 倍速 / 预计剩余 / 是否卡住 / 分片进度 */
+  bytes?: number;
+  bytesPerSec?: number;
+  speedX?: number;
+  etaSec?: number;
+  stalled?: boolean;
+  segDone?: number;
+  segTotal?: number;
   attempts: number;
   title?: string;
   outputPath?: string;
@@ -221,11 +229,21 @@ export class TaskManager {
         if (e.status === 'resolving' && !task.view.startedAt) task.view.startedAt = Date.now();
         this.emit({ type: 'task', task: task.view });
         break;
-      case 'progress':
-        task.view.percent = e.progress.percent;
-        task.view.timeSec = e.progress.timeSec;
-        this.emit({ type: 'progress', taskId: task.view.id, progress: e.progress });
+      case 'progress': {
+        const p = e.progress;
+        task.view.percent = p.percent;
+        task.view.timeSec = p.timeSec;
+        // 未提供的字段要清掉，避免沿用上一轮（重试）的旧值
+        task.view.bytes = p.bytes;
+        task.view.bytesPerSec = p.bytesPerSec;
+        task.view.speedX = p.speedX;
+        task.view.etaSec = p.etaSec;
+        task.view.stalled = p.stalled;
+        task.view.segDone = p.segDone;
+        task.view.segTotal = p.segTotal;
+        this.emit({ type: 'progress', taskId: task.view.id, progress: p });
         break;
+      }
       case 'log':
         this.log(e.level, e.message, task.view.id);
         break;

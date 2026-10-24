@@ -80,9 +80,20 @@ export interface Manifest {
 }
 
 export interface TaskProgress {
+  /** 0–100；运行期 ≤99.5，ffmpeg 正常退出后才 100。 */
   percent: number;
+  /** 已写入的媒体时间（秒）。 */
   timeSec: number;
+  /** 已写入字节数。 */
   bytes?: number;
+  /** 实时下载速度（字节/秒）。 */
+  bytesPerSec?: number;
+  /** ffmpeg 的倍速（12.3 = 12.3x 实时）。 */
+  speedX?: number;
+  /** 预计剩余时间（秒）。 */
+  etaSec?: number;
+  /** 最近几秒没有新数据（网络卡住/等重试）。 */
+  stalled?: boolean;
   segDone?: number;
   segTotal: number;
 }

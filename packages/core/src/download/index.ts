@@ -15,6 +15,7 @@ import { createInterface } from 'node:readline';
 import { AppError } from '../errors.js';
 import type { ContainerFormat } from '../types.js';
 import { runProcess } from '../browser/spawn.js';
+import { ProgressTracker, scrubSecrets, type DownloadProgress } from './progress.js';
 
 export interface FfmpegArgsInput {
   manifestPath: string;
@@ -25,8 +26,9 @@ export interface FfmpegArgsInput {
 export function buildFfmpegArgs(input: FfmpegArgsInput): string[] {
   return [
     '-hide_banner',
+    // 必须是 info：段级进度依赖 stderr 里的 `Opening '<seg>' for reading`
     '-loglevel',
-    'warning',
+    'info',
     '-y',
     // AES-128 加密分片必需：crypto 协议 + 允许所有扩展名
     '-protocol_whitelist',
@@ -44,20 +46,16 @@ export function buildFfmpegArgs(input: FfmpegArgsInput): string[] {
   ];
 }
 
-export interface DownloadProgress {
-  /** ffmpeg 报告的已处理时长（秒）。 */
-  timeSec: number;
-  /** 相对清单总时长的百分比（0–100，封顶 100）。 */
-  percent: number;
-  speed?: string;
-  bytes?: number;
-}
+export type { DownloadProgress } from './progress.js';
+export { ProgressTracker, parseProgressLine, parseSpeedX, scrubSecrets } from './progress.js';
 
 export interface DownloadOptions {
   manifestPath: string;
   outPath: string;
   /** 清单累加时长，用于算进度百分比。 */
   manifestDurationSec: number;
+  /** 清单里的分片总数（用于段级真实进度）。 */
+  segTotal?: number;
   ffmpegPath?: string;
   onProgress?: (p: DownloadProgress) => void;
   signal?: AbortSignal;
@@ -73,45 +71,60 @@ export interface DownloadOutcome {
   lastTimeSec: number;
 }
 
-/** 跑 ffmpeg 转封装，边跑边解析 `-progress pipe:1` 的 `out_time_us`。 */
+/**
+ * 跑 ffmpeg 转封装，边跑边算进度。
+ *
+ * 进度来源（见 progress.ts 的说明）：
+ *   - stdout `-progress pipe:1`：out_time / total_size / speed
+ *   - stderr `-loglevel info` 的 `Opening '<seg>' for reading`：段级真实下载进度
+ * 运行期百分比封顶 99.5，ffmpeg 正常退出后才补 100（避免「满格但没下完」的假象）。
+ */
 export function downloadWithFfmpeg(opts: DownloadOptions): Promise<DownloadOutcome> {
   return new Promise<DownloadOutcome>((resolve) => {
     const args = buildFfmpegArgs({ manifestPath: opts.manifestPath, outPath: opts.outPath });
     const child = spawn(opts.ffmpegPath ?? 'ffmpeg', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
 
-    const errChunks: string[] = [];
+    const tracker = new ProgressTracker({
+      manifestDurationSec: opts.manifestDurationSec,
+      segTotal: opts.segTotal,
+      outPath: opts.outPath,
+    });
+
+    // stderr 只留尾部（排障用），并抹掉签名参数
+    let errTail = '';
     let lastTimeSec = 0;
     let lastEmit = 0;
     let aborted = false;
+    const interval = opts.progressIntervalMs ?? 500;
 
+    const emitProgress = (p: DownloadProgress, force = false): void => {
+      const now = Date.now();
+      if (!force && now - lastEmit < interval) return;
+      lastEmit = now;
+      lastTimeSec = p.timeSec;
+      opts.onProgress?.(p);
+    };
+
+    // stderr：逐行喂给 tracker（段级进度）+ 保留尾部做错误诊断
+    let errBuf = '';
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
-      errChunks.push(chunk);
-      if (errChunks.length > 400) errChunks.shift();
+      errBuf += chunk;
+      const lines = errBuf.split(/\r?\n/);
+      errBuf = lines.pop() ?? '';
+      for (const line of lines) {
+        tracker.feedStderrLine(line);
+        if (line.trim()) {
+          errTail += `${scrubSecrets(line)}\n`;
+          if (errTail.length > 20_000) errTail = errTail.slice(-15_000);
+        }
+      }
     });
 
     const rl = createInterface({ input: child.stdout });
     rl.on('line', (line: string) => {
-      const eq = line.indexOf('=');
-      if (eq < 0) return;
-      const key = line.slice(0, eq).trim();
-      const value = line.slice(eq + 1).trim();
-      if (key === 'out_time_us' || key === 'out_time_ms') {
-        const us = Number.parseInt(value, 10);
-        if (Number.isFinite(us) && us >= 0) lastTimeSec = us / 1_000_000;
-      } else if (key === 'total_size') {
-        // 仅记录，进度主要由时长驱动
-      }
-      if (key === 'progress') {
-        const now = Date.now();
-        const interval = opts.progressIntervalMs ?? 500;
-        if (now - lastEmit >= interval || value === 'end') {
-          lastEmit = now;
-          const total = opts.manifestDurationSec > 0 ? opts.manifestDurationSec : 0;
-          const percent = total > 0 ? Math.min(100, Math.max(0, (lastTimeSec / total) * 100)) : 0;
-          opts.onProgress?.({ timeSec: lastTimeSec, percent });
-        }
-      }
+      const progress = tracker.feedStdoutLine(line);
+      if (progress) emitProgress(progress, true);
     });
 
     const onAbort = (): void => {
@@ -126,13 +139,16 @@ export function downloadWithFfmpeg(opts: DownloadOptions): Promise<DownloadOutco
 
     child.on('error', (e) => {
       opts.signal?.removeEventListener('abort', onAbort);
-      resolve({ code: null, stderr: `${errChunks.join('')}${e.message}`, aborted, lastTimeSec });
+      resolve({ code: null, stderr: `${errTail}${scrubSecrets(e.message)}`, aborted, lastTimeSec });
     });
 
     child.on('close', (code) => {
       opts.signal?.removeEventListener('abort', onAbort);
       rl.close();
-      resolve({ code, stderr: errChunks.join(''), aborted, lastTimeSec });
+      // 正常结束：补一次 100%（含文件真实大小）；失败/中断：给出最后状态
+      const final = code === 0 && !aborted ? tracker.finish(opts.outPath) : tracker.snapshot();
+      emitProgress(final, true);
+      resolve({ code, stderr: errTail, aborted, lastTimeSec });
     });
   });
 }

@@ -208,6 +208,7 @@ export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promi
         manifestPath: ctx.resolved.manifestPath,
         outPath: partPath,
         manifestDurationSec: ctx.resolved.manifest.durationSec,
+        segTotal: ctx.resolved.manifest.segments,
         ...(opts.ffmpegPath === undefined ? {} : { ffmpegPath: opts.ffmpegPath }),
         ...(opts.signal === undefined ? {} : { signal: opts.signal }),
         onProgress: (p) => {
@@ -215,9 +216,15 @@ export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promi
             type: 'progress',
             taskId,
             progress: {
-              percent: Number(p.percent.toFixed(1)),
-              timeSec: Number(p.timeSec.toFixed(1)),
-              segTotal: ctx.resolved.manifest.segments,
+              percent: p.percent,
+              timeSec: p.timeSec,
+              segTotal: p.segTotal ?? ctx.resolved.manifest.segments,
+              ...(p.bytes === undefined ? {} : { bytes: p.bytes }),
+              ...(p.bytesPerSec === undefined ? {} : { bytesPerSec: p.bytesPerSec }),
+              ...(p.speedX === undefined ? {} : { speedX: p.speedX }),
+              ...(p.etaSec === undefined ? {} : { etaSec: p.etaSec }),
+              ...(p.stalled === undefined ? {} : { stalled: p.stalled }),
+              ...(p.segDone === undefined ? {} : { segDone: p.segDone }),
             },
           });
         },

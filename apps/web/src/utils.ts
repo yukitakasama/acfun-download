@@ -20,6 +20,30 @@ export function formatDuration(sec?: number): string {
   return `${m}:${String(rest).padStart(2, '0')}`;
 }
 
+/** 字节/秒 → 人读速度（1.2MB/s）。 */
+export function formatSpeed(bytesPerSec?: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0) return '';
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  let value = bytesPerSec;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i += 1;
+  }
+  return `${value.toFixed(i >= 2 ? 1 : 0)}${units[i]}`;
+}
+
+/** 秒 → 人读剩余时间（约 1:10）。 */
+export function formatEta(sec?: number): string {
+  if (!sec || sec <= 0) return '';
+  if (sec < 60) return `约 ${Math.round(sec)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (m < 60) return `约 ${m}:${String(s).padStart(2, '0')}`;
+  const h = Math.floor(m / 60);
+  return `约 ${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 export function formatTime(ts?: number): string {
   if (!ts) return '-';
   const d = new Date(ts);

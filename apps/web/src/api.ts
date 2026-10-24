@@ -43,6 +43,13 @@ export interface TaskView {
   status: string;
   percent: number;
   timeSec: number;
+  bytes?: number;
+  bytesPerSec?: number;
+  speedX?: number;
+  etaSec?: number;
+  stalled?: boolean;
+  segDone?: number;
+  segTotal?: number;
   attempts: number;
   title?: string;
   outputPath?: string;
