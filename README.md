@@ -17,7 +17,7 @@
 | M3 | 取清单（ego lite / Chrome 兜底） | ✅ |
 | M4 | 下载核验（ffmpeg / 全量解码核验） | ✅ |
 | M5 | 批量与报告 | ✅ |
-| M6 | 服务与 GUI | ⬜ |
+| M6 | 服务与 GUI | ✅ |
 | M7 | 桌面壳（Tauri 2，需 Rust + MSVC） | ⬜ |
 | M8 | 交付（README / SELFTEST） | ⬜ |
 
@@ -61,3 +61,4 @@ pnpm typecheck    # 类型检查
 | `v0.3-manifest` | M3 取清单 |
 | `v0.4-download` | M4 下载核验 |
 | `v0.5-batch` | M5 批量与报告 |
+| `v0.6-gui` | M6 服务与 GUI |

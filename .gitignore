@@ -43,6 +43,10 @@ resume.json
 *.log
 logs/
 
+# ---- 浏览器自动化 / 截图 ----
+.playwright-mcp/
+*.pw.png
+
 # ---- 编辑器 / 系统 ----
 .idea/
 .vscode/*
