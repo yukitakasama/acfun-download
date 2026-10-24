@@ -8,4 +8,5 @@ export * from './errors.js';
 export * from './net.js';
 export * from './input/index.js';
 export * from './site/index.js';
-export const CORE_VERSION = '0.1.0';
+export * from './naming/index.js';
+export const CORE_VERSION = '0.2.0';
