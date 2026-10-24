@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, statSync, truncateSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync, statSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpDir } from './helpers/tmp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   buildFfmpegArgs,
@@ -53,7 +53,7 @@ describe.skipIf(!hasFfmpeg)('真实 ffmpeg：下载与核验', () => {
   let encryptedManifest = '';
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'acfun-ff-'));
+    dir = tmpDir('acfun-ff-');
     plainMp4 = join(dir, 'plain.mp4');
     // 3 秒 30fps 测试源（≈90 帧）
     ff(

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpDir } from './helpers/tmp.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AppError,
@@ -85,7 +85,7 @@ describe('runTask：重试与退避', () => {
   });
 
   it('可重试错误按 1s → 2s 退避，跑满 --retries 轮后判失败', async () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-pipe-'));
+    const outDir = tmpDir('acfun-pipe-');
     const calls: number[] = [];
     const resolveFn = vi.fn(async () => {
       calls.push(Date.now());
@@ -106,7 +106,7 @@ describe('runTask：重试与退避', () => {
   });
 
   it('不可重试错误（需鉴权）立刻失败，只跑 1 轮', async () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-pipe-'));
+    const outDir = tmpDir('acfun-pipe-');
     const resolveFn = vi.fn(async () => {
       throw new AppError('AUTH_REQUIRED', 'canWatch=false');
     });
@@ -118,7 +118,7 @@ describe('runTask：重试与退避', () => {
   });
 
   it('Ctrl+C：中断后判 USER_ABORT 并落 resume.json（保留 .part 供 --resume）', async () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-pipe-'));
+    const outDir = tmpDir('acfun-pipe-');
     const controller = new AbortController();
     const resolveFn = vi.fn(async () => {
       controller.abort();
@@ -146,7 +146,7 @@ describe('runTask：重试与退避', () => {
 
 describe('runTask：命名与跳过', () => {
   it('--on-exist skip：已存在同名文件则跳过，不算失败', async () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-pipe-'));
+    const outDir = tmpDir('acfun-pipe-');
     const manifestPath = join(outDir, 'm.m3u8');
     writeFileSync(manifestPath, '#EXTM3U\n', 'utf8');
     // 标题清洗后是 测试视频_含非法字符
@@ -162,7 +162,7 @@ describe('runTask：命名与跳过', () => {
   });
 
   it('--on-exist rename：重名时落 -1', async () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-pipe-'));
+    const outDir = tmpDir('acfun-pipe-');
     const manifestPath = join(outDir, 'm.m3u8');
     writeFileSync(manifestPath, '#EXTM3U\n', 'utf8');
     writeFileSync(join(outDir, '测试视频_含非法字符.mp4'), 'x');
@@ -180,7 +180,7 @@ describe('runTask：命名与跳过', () => {
 
 describe.skipIf(!hasFfmpeg)('runTask：真实 ffmpeg 端到端', () => {
   it('本地加密 HLS：下载 → 核验 → 转正 → 写 meta sidecar', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'acfun-e2e-'));
+    const dir = tmpDir('acfun-e2e-');
     const outDir = join(dir, 'out');
     const keyPath = join(dir, 'enc.key');
     writeFileSync(keyPath, Buffer.from('0123456789abcdef', 'utf8'));

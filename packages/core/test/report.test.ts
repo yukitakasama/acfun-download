@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpDir } from './helpers/tmp.js';
 import { describe, expect, it } from 'vitest';
 import {
   buildFailuresReport,
@@ -100,7 +100,7 @@ describe('CSV 报告', () => {
 
 describe('writeReports 落盘', () => {
   it('json 模式写 <ts>-result.json 与 failures-<ts>.json', () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-rep-'));
+    const outDir = tmpDir('acfun-rep-');
     const now = new Date('2026-10-24T10:20:30');
     const out = writeReports({ outDir, results, format: 'json', now });
     expect(out.resultFile).toContain(`reports/${timestampSlug(now)}-result.json`.replace(/\//g, require('node:path').sep));
@@ -111,7 +111,7 @@ describe('writeReports 落盘', () => {
   });
 
   it('csv 模式写 <ts>-result.csv', () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-rep-'));
+    const outDir = tmpDir('acfun-rep-');
     const out = writeReports({ outDir, results, format: 'csv', now: new Date('2026-10-24T10:20:30') });
     expect(out.resultFile!.endsWith('.csv')).toBe(true);
     expect(readFileSync(out.resultFile!, 'utf8')).toContain('taskId,status');

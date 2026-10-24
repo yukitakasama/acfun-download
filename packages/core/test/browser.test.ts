@@ -1,7 +1,7 @@
 import { createCipheriv } from 'node:crypto';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpDir } from './helpers/tmp.js';
 import { describe, expect, it } from 'vitest';
 import {
   buildEgoScript,
@@ -20,7 +20,7 @@ https://cdn.example.com/a/1.ts
 #EXT-X-ENDLIST
 `;
 
-const tmp = (): string => mkdtempSync(join(tmpdir(), 'acfun-test-'));
+const tmp = (): string => tmpDir();
 
 interface FakePageOptions {
   /** 每次 goto 时页面会发出的 authPath URL（null 表示不发）。 */

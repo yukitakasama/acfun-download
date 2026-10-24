@@ -4,7 +4,7 @@
  * M4：单条/多条顺序下载 + 全量解码核验 + .part + 两轮整片重试。
  * M5：队列/并发语义/限速/续传/汇总报告/失败清单/退出码。
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { classifyError, preflight, writeReports, type InputItem, type PipelineOptions } from '@acfun/core';
@@ -32,9 +32,10 @@ export async function runDownload(
   }
 
   const outDir = resolve(opts.outDir);
-  const workDir = process.env.ACFUN_WORK_DIR
-    ? resolve(process.env.ACFUN_WORK_DIR)
-    : mkdtempSync(join(tmpdir(), 'acfun-work-'));
+  const ephemeralWorkDir = !process.env.ACFUN_WORK_DIR;
+  const workDir = ephemeralWorkDir
+    ? mkdtempSync(join(tmpdir(), 'acfun-work-'))
+    : resolve(process.env.ACFUN_WORK_DIR as string);
 
   const pipeline: PipelineOptions = {
     outDir,
@@ -67,7 +68,8 @@ export async function runDownload(
     return 1;
   }
 
-  log.info(`输出目录: ${outDir}`);
+  try {
+    log.info(`输出目录: ${outDir}`);
   log.info(`输入 ${items.length} 条${opts.concurrency > 1 ? `（并发 ${opts.concurrency}，仅 ffmpeg 阶段并行；浏览器取清单恒串行）` : ''}`);
   for (let i = 0; i < items.length; i++) log.debug(`${describeItem(items[i]!, i)} ${items[i]!.url}`);
 
@@ -91,5 +93,9 @@ export async function runDownload(
     for (const r of outcome.results) log.emit(r);
   }
 
-  return exitCodeFor(outcome);
+    return exitCodeFor(outcome);
+  } finally {
+    // 临时工作目录（清单/握手文件）用完即删；resume 状态在 outDir/reports 里，不受影响
+    if (ephemeralWorkDir) rmSync(workDir, { recursive: true, force: true });
+  }
 }

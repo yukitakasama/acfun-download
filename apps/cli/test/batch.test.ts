@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpDir } from './helpers/tmp.js';
 import { describe, expect, it } from 'vitest';
 import { writeReports, type InputItem, type PipelineOptions, type TaskResult } from '@acfun/core';
 import { CliLog } from '../src/io.js';
@@ -52,7 +52,7 @@ const fakeRunner = async (input: {
 
 describe('批量：独立成败 + 部分失败不被吞', () => {
   it('三条各自归位，退出码 3，失败清单含失败项', async () => {
-    const outDir = mkdtempSync(join(tmpdir(), 'acfun-batch-'));
+    const outDir = tmpDir();
     const outcome = await runAll({
       items,
       pipeline,

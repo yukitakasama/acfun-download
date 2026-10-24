@@ -5,7 +5,7 @@
  * - 每个状态变化 / 进度 / 日志 / 完成都推给 SSE 订阅者
  * - 历史与失败清单落盘（%APPDATA%\acfun-download\history.json）
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -299,6 +299,15 @@ export class TaskManager {
 
   cancelAll(): void {
     for (const id of this.order) this.cancel(id);
+  }
+
+  /** 退出清理：删掉本进程的临时工作目录（清单/结果文件），不碰用户下载目录。 */
+  dispose(): void {
+    try {
+      rmSync(this.workRoot, { recursive: true, force: true });
+    } catch {
+      /* 被占用就留给系统清理 */
+    }
   }
 
   private appendHistory(result: TaskResult): void {

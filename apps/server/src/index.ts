@@ -138,6 +138,7 @@ async function main(): Promise<void> {
   const shutdown = (signal: string): void => {
     process.stderr.write(`[acfun-server] 收到 ${signal}，停止任务并退出…\n`);
     manager.cancelAll();
+    manager.dispose();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   };
