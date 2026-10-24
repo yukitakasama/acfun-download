@@ -159,6 +159,7 @@ export const api = {
   retry: (id: string) => request<{ ok: boolean; task: TaskView }>(`/api/tasks/${id}/retry`, { method: 'POST' }),
   history: () => request<{ ok: boolean; history: TaskResult[] }>('/api/history'),
   failures: () => request<{ ok: boolean; failures: TaskResult[] }>('/api/failures'),
+  shutdown: () => request<{ ok: boolean; message: string }>('/api/shutdown', { method: 'POST' }),
 };
 
 export interface SseEvent {

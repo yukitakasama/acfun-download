@@ -123,6 +123,19 @@ async function boot(): Promise<void> {
   }
 }
 
+async function shutdownServer(): Promise<void> {
+  if (!window.confirm('停止本地服务？停止后本页面将无法继续使用，重新点桌面图标即可再启动。')) return;
+  try {
+    await api.shutdown();
+    pushLog('warn', '已请求停止本地服务');
+    closeEvents?.();
+    connected.value = false;
+    fatal.value = '本地服务已退出。需要继续使用请重新运行应用（桌面/开始菜单图标）。';
+  } catch (e) {
+    pushLog('error', (e as Error).message);
+  }
+}
+
 function submitToken(): void {
   if (!tokenInput.value.trim()) return;
   setToken(tokenInput.value);
@@ -162,6 +175,7 @@ onBeforeUnmount(() => closeEvents?.());
         <span class="sep" />
         <span class="muted">成功 {{ stats.success }} / 失败 {{ stats.failed }} / 跳过 {{ stats.skipped }}</span>
         <button small ghost @click="showSettings = !showSettings">{{ showSettings ? '收起设置' : '设置' }}</button>
+        <button small ghost title="停止本地服务（后台 node 进程）" @click="shutdownServer">退出服务</button>
       </div>
     </header>
 

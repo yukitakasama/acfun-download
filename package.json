@@ -17,7 +17,8 @@
     "dev:web": "pnpm --filter @acfun/web dev",
     "dev:server": "pnpm --filter @acfun/server dev",
     "build:web": "pnpm --filter @acfun/web build",
-    "package:web": "node scripts/package-web.mjs"
+    "package:web": "node scripts/package-web.mjs",
+    "package:installer": "node scripts/package-installer.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

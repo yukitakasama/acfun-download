@@ -18,6 +18,8 @@ export interface AppDeps {
   token: string;
   /** 前端构建产物目录（不存在则只提供 API）。 */
   webDir?: string;
+  /** 收到 /api/shutdown 后的优雅退出回调（进程管理器没有托盘，靠网页关停）。 */
+  onShutdown?: () => void;
 }
 
 const MIME: Record<string, string> = {
@@ -60,6 +62,13 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/health', (c) =>
     c.json({ ok: true, pid: process.pid, uptimeSec: Math.round(process.uptime()), version: CORE_VERSION }),
   );
+
+  // ---- 关停服务（GUI 里点「退出服务」）----
+  app.post('/api/shutdown', (c) => {
+    c.header('connection', 'close');
+    setTimeout(() => deps.onShutdown?.(), 120);
+    return c.json({ ok: true, message: '服务正在退出' });
+  });
 
   // ---- 环境探测（设置页的黄色告警就用这个）----
   app.get('/api/env', async (c) => {

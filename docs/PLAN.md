@@ -393,3 +393,11 @@ ego lite 是**单一 GUI 实例 + 用户真实 profile**，任务空间并行会
   前端验证统一用 **ego lite 的独立 task space** 做（与下载通道同一个浏览器，便于对照）。
 - 顺带修正 §2 的环境判断：本机 **MSVC C++ 工具（14.44）与 Windows SDK 10.0.26100 其实已安装**，
   Rust（rustup stable-x86_64-pc-windows-msvc）也已就绪；之前判为缺失是因为不在 Git Bash 的 PATH 里。
+
+- **2026-10-24 · 交付形态再调整：出 NSIS 安装程序**。安装后桌面/开始菜单有带图标的「AcFun 下载」，
+  点它**只**起本地服务并用默认浏览器打开界面（仍然不打包原生 UI）。
+  实现：`packaging/launcher`（Rust，纯 std 的启动器：读 `%APPDATA%cfun-download\server.json` 复用已运行实例、
+  否则 `CREATE_NO_WINDOW` 拉起 `node.exe + server/index.js --state-file …`，再 `start` 浏览器）
+  + `packaging/installer.nsi`（按用户安装到 `%LOCALAPPDATA%\Programs\AcFun下载`，快捷方式/卸载/保留用户数据）
+  + 服务端新增 `--state-file` 与 `POST /api/shutdown`（界面右上角「退出服务」）。
+  打包脚本：`pnpm package:installer`。

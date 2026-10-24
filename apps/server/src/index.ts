@@ -6,7 +6,7 @@
  */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
@@ -24,6 +24,8 @@ interface Args {
   handshake: boolean;
   /** 启动后用系统默认浏览器打开 GUI（绿色包双击启动走这个）。 */
   open: boolean;
+  /** 把运行信息（端口/token/pid/url）写到这个文件，供启动器复用已运行的实例。 */
+  stateFile?: string;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -51,6 +53,9 @@ function parseArgs(argv: readonly string[]): Args {
         break;
       case '--open':
         args.open = true;
+        break;
+      case '--state-file':
+        args.stateFile = argv[++i];
         break;
       default:
         if (a && !a.startsWith('-')) break;
@@ -106,7 +111,13 @@ async function main(): Promise<void> {
   const manager = new TaskManager(() => config, setConfig);
   const token = args.token ?? process.env.ACFUN_TOKEN ?? randomBytes(16).toString('hex');
   const webDir = args.webDir ?? defaultWebDir();
-  const app = createApp({ manager, getConfig: () => config, token, ...(webDir === undefined ? {} : { webDir }) });
+  const app = createApp({
+    manager,
+    getConfig: () => config,
+    token,
+    ...(webDir === undefined ? {} : { webDir }),
+    onShutdown: () => shutdown('HTTP /api/shutdown'),
+  });
 
   const server = serve({ fetch: app.fetch, hostname: args.host, port: args.port }, (info) => {
     const url = `http://${args.host}:${info.port}/?token=${token}`;
@@ -117,6 +128,25 @@ async function main(): Promise<void> {
     if (webDir) process.stderr.write(`[acfun-server] 前端目录: ${webDir}\n`);
     else process.stderr.write('[acfun-server] 未找到前端构建产物（pnpm build:web），仅提供 API\n');
     process.stderr.write(`[acfun-server] 打开: ${url}\n`);
+
+    // 把运行信息写出来，供启动器/脚本复用已在跑的实例（端口随机 + 一次性 token）
+    if (args.stateFile) {
+      try {
+        writeFileSync(
+          args.stateFile,
+          `${JSON.stringify(
+            { type: 'server', host: args.host, port: info.port, token, url, pid: process.pid, startedAt: Date.now() },
+            null,
+            2,
+          )}\n`,
+          'utf8',
+        );
+        process.stderr.write(`[acfun-server] 运行信息: ${args.stateFile}\n`);
+      } catch (e) {
+        process.stderr.write(`[acfun-server] 写运行信息失败: ${(e as Error).message}\n`);
+      }
+    }
+    if (args.open) openBrowser(url);
 
     // 环境自检（失败只告警，不影响服务启动）
     void (async () => {
@@ -139,6 +169,13 @@ async function main(): Promise<void> {
     process.stderr.write(`[acfun-server] 收到 ${signal}，停止任务并退出…\n`);
     manager.cancelAll();
     manager.dispose();
+    if (args.stateFile) {
+      try {
+        rmSync(args.stateFile, { force: true });
+      } catch {
+        /* 删不掉不影响退出 */
+      }
+    }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   };

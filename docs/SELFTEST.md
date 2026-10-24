@@ -223,6 +223,40 @@ pnpm package:web
 | 进度是真实推送 | ✓ 11 个采样点单调上升，来自 SSE `progress` 事件 |
 | 设置持久化 | ✓ 写入 `%APPDATA%cfun-download\config.json`（测试后已还原/清理） |
 
+## 用例 6：NSIS 安装程序 —— 点图标只开浏览器（无原生 UI）
+
+```bash
+pnpm package:installer
+# → dist/AcFun下载-Setup-1.0.0.exe   22.4MB
+# 安装数据 93.2MB → LZMA 压缩到 23.5MB（内含 node.exe 91.7MB + 服务端 bundle + 前端）
+```
+
+静默装到临时目录（等价于双击安装器一路下一步）：
+
+```bash
+AcFun下载-Setup-1.0.0.exe /S /D=<临时目录>
+# exit=0
+# 安装内容：AcFunDownload.exe(456KB 启动器) app.ico node.exe server/{index.js,package.json} web/** 使用说明.txt uninstall.exe
+```
+
+**点图标**（真实点击，未加任何测试环境变量）：
+
+| 验收点 | 实测 |
+|---|---|
+| 不唤起原生 UI | ✓ 启动器 `windows_subsystem=windows`、服务 `CREATE_NO_WINDOW`，只有浏览器窗口 |
+| 打开浏览器 | ✓ 走 `cmd /c start "" <url>`，URL 形如 `http://127.0.0.1:53241/?token=…` |
+| 服务可用 | ✓ `GET /api/health` → `{"ok":true,"pid":32432,"version":"1.0.0"}` |
+| 启动器自身退出 | ✓ `launcher exit=0`（不常驻、不留进程） |
+| 运行信息落盘 | ✓ `%APPDATA%cfun-download\server.json`（port/token/pid/url） |
+| 重复点击复用 | ✓ 第二次点击后 node 仍是同一个 pid（`node_count=1`） |
+| 优雅关停 | ✓ `AcFunDownload.exe --shutdown` → 日志 `收到 HTTP /api/shutdown，停止任务并退出…`，`node_count=0`，`server.json` 已删 |
+| 静默卸载 | ✓ `uninstall.exe /S` → 安装目录删除，`Uninstall` 注册表项、`Softwarecfun-download`、桌面/开始菜单快捷方式全部清空 |
+| 卸载保留用户数据 | ✓ `%APPDATA%cfun-download`（配置/历史/日志）不删 |
+
+> 过程中修掉的真问题：① 启动器里 `--shutdown` 的 HTTP 请求串被误写成裸 LF，导致服务不退出（已改回 CRLF）；
+> ② `ACFUN_NO_BROWSER=` 空值被当成「测试模式」，已改成只认 `=1`；
+> ③ 服务端 `--state-file` 的写入分支一开始没落进代码（启动器等不到运行信息），已补。
+
 ---
 
 ## 单测
