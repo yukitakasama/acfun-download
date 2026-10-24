@@ -3,6 +3,8 @@ name = "acfun-download-gui"
 version = "1.4.0"
 edition = "2021"
 publish = false
+license = "MIT"
+repository = "https://github.com/yukitakasama/acfun-download"
 description = "AcFun 下载 · 原生桌面 GUI"
 
 [[bin]]

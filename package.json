@@ -27,5 +27,11 @@
     "tsup": "^8.4.0",
     "typescript": "^5.8.3",
     "vitest": "^3.1.3"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yukitakasama/acfun-download.git"
+  },
+  "homepage": "https://github.com/yukitakasama/acfun-download"
 }

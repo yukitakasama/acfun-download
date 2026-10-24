@@ -1,7 +1,7 @@
 # AcFun 视频下载工具 — 开发计划（PLAN）
 
 > 状态：**待用户确认**。确认后按 §8 里程碑编码，逐段提交。
-> 基准依据：本地 skill `acfun-video-download`（`C:\Users\yuki\.config\opencode\skills\acfun-video-download`）的 `SKILL.md` 与 `references/technical-notes.md`。
+> 基准依据：本地 `acfun-video-download` skill 的 `SKILL.md` 与 `references/technical-notes.md`（站点两代前端链路与签名规则）。
 > 说明：本工具**重新实现**解析/下载/核验逻辑，只把 ego lite 当浏览器通道调用（`spawn ego-browser nodejs`），**不** `node` 执行 skill 自带的 4 个脚本。
 
 ---
