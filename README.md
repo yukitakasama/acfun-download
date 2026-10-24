@@ -12,7 +12,7 @@
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | M0 | pnpm workspace / tsconfig / vitest / README 骨架 | ✅ |
-| M1 | 解析层（输入归一、站点世代判定） | ⬜ |
+| M1 | 解析层（输入归一、站点世代判定） | ✅ |
 | M2 | 命名层（清洗/模板/重名） | ⬜ |
 | M3 | 取清单（ego lite / Chrome 兜底） | ⬜ |
 | M4 | 下载核验（ffmpeg / 全量解码核验） | ⬜ |
@@ -56,3 +56,4 @@ pnpm typecheck    # 类型检查
 | tag | 内容 |
 |---|---|
 | `v0.0-skeleton` | M0 骨架 |
+| `v0.1-parse` | M1 解析层 |

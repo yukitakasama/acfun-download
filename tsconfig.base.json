@@ -18,6 +18,10 @@
     "declaration": true,
     "sourceMap": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@acfun/core": ["packages/core/src/index.ts"]
+    }
   }
 }
