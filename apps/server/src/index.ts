@@ -4,6 +4,7 @@
  * 启动后 stdout **首行** 是一条 JSON：`{"type":"server","port":...,"token":...,"url":...}`，
  * 供 Rust 壳/Tauri 读取端口与一次性 token（PLAN §6.6）。其余日志一律走 stderr。
  */
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -21,10 +22,12 @@ interface Args {
   webDir?: string;
   configPath?: string;
   handshake: boolean;
+  /** 启动后用系统默认浏览器打开 GUI（绿色包双击启动走这个）。 */
+  open: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
-  const args: Args = { port: 0, host: '127.0.0.1', handshake: true };
+  const args: Args = { port: 0, host: '127.0.0.1', handshake: true, open: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -46,12 +49,33 @@ function parseArgs(argv: readonly string[]): Args {
       case '--no-handshake':
         args.handshake = false;
         break;
+      case '--open':
+        args.open = true;
+        break;
       default:
         if (a && !a.startsWith('-')) break;
         break;
     }
   }
   return args;
+}
+
+/** 用系统默认浏览器打开 URL（不需要任何原生窗口，GUI 就是浏览器里的网页）。 */
+function openBrowser(url: string): void {
+  try {
+    if (process.platform === 'win32') {
+      spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+    }
+    process.stderr.write(`[acfun-server] 已用默认浏览器打开 GUI
+`);
+  } catch (e) {
+    process.stderr.write(`[acfun-server] 打开浏览器失败（请手动访问上面的链接）: ${(e as Error).message}
+`);
+  }
 }
 
 /** 默认前端目录：优先 apps/web/dist（workspace 布局），再退回 server 包旁边的 web/dist。 */

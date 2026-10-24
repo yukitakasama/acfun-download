@@ -183,27 +183,45 @@ title: AcFun 视频下载 | textarea: true | 实时连接
 
 ---
 
-## 用例 5（附加）：sidecar 独立运行（M7 未编译部分的可验证环节）
+## 用例 5（附加）：浏览器版绿色包 + ego 独立 space 跑通 GUI 全流程
+
+**打包**（不打包任何原生 UI，GUI 就是浏览器里的网页）：
 
 ```bash
-node apps/desktop/scripts/prepare-sidecar.mjs
-apps/desktop/src-tauri/binaries/acfun-server-x86_64-pc-windows-msvc.exe \
-  apps/desktop/src-tauri/resources/server/index.js \
-  --port 0 --web-dir apps/desktop/src-tauri/resources/web
+pnpm package:web
+# dist/acfun-download-1.0.0-win-x64/{node.exe, server/index.js, web/**, 启动.cmd, 使用说明.txt}
+# dist/acfun-download-1.0.0-win-x64.zip   33MB
 ```
 
-在**没有 node_modules** 的临时目录下运行，结果：
+**启动绿色包**（在包目录里，与用户双击 `启动.cmd` 同一条命令，只是去掉 `--open` 便于用 ego 打开）：
 
-```
-{"type":"server","host":"127.0.0.1","port":58745,"token":"…","url":"http://127.0.0.1:58745/?token=…","pid":36728}
-[acfun-server] 前端目录: …\resources\web
-[acfun-server] ffmpeg version … / ego lite: ego-browser 0.6.0.22
-GET /            → 200（index.html）
-GET /assets/…js  → 200 92294 字节
-GET /api/env     → {"ffmpeg":{"ok":true},"ego":{"ok":true,"version":"ego-browser 0.6.0.22"}}
+```bash
+./node.exe server/index.js --port 0 --web-dir web
+# {"type":"server","host":"127.0.0.1","port":50415,"token":"…","url":"http://127.0.0.1:50415/?token=…","pid":548}
+# [acfun-server] 前端目录: web
+# [acfun-server] ffmpeg version … / ego lite: ego-browser 0.6.0.22
 ```
 
-> `tauri build` 尚未执行：本机缺 rustc/cargo 与 MSVC（见 `apps/desktop/README.md`），属计划内挂起项。
+**前端测试**：用 ego lite 新建**独立 space**（`acfun-frontend-test-mvmabrp2`）导航到该 URL，再用 DOM 操作驱动，
+实测结果（原样摘录）：
+
+| 步骤 | 实测 |
+|---|---|
+| 页面 | 标题 `AcFun 视频下载`；头部状态 `实时连接`（SSE 已连上） |
+| 输入 | 粘贴分享文本 → `共 1 行有效输入` |
+| 解析预览 | `世代NUXT / 类型post / pageId2164700 / 域名https://dlc1.8dbtby03.work / 判定依据：/_nuxt/ acpcssr.*.work`（约 3s 出结果） |
+| 下载进度 | 采样值：`0 → 4.9 → 18.5 → 32.1 → 44 → 54.3 → 66.6 → 78.3 → 86.3 → 98.4 → 100` |
+| 完成行 | `完成 · 100.0% · 已处理 2:42 · 213.2MB · C:\…\gui-dl-test\<标题>.mp4` |
+| 设置页 | `ffmpeg version …`、`ego-browser 0.6.0.22` 均探测为 OK；字段齐全（输出目录/容器格式/重名处理/浏览器通道/ffmpeg 路径/代理） |
+| 历史页 | 出现 `核验：` 数据（帧数 / 时长 / 清单时长） |
+| space 收尾 | `task.finish({ keep: [] })`，不在用户窗口留残页 |
+
+| 验收点 | 结果 |
+|---|---|
+| 绿色包不依赖目标机装 Node | ✓（跑的是包内 `node.exe`，无 node_modules） |
+| GUI 全流程 | ✓ 粘贴 → 解析预览 → 下载 → 实时进度 → 日志/失败清单/历史 |
+| 进度是真实推送 | ✓ 11 个采样点单调上升，来自 SSE `progress` 事件 |
+| 设置持久化 | ✓ 写入 `%APPDATA%cfun-download\config.json`（测试后已还原/清理） |
 
 ---
 

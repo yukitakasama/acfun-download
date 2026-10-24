@@ -23,8 +23,8 @@
 | M4 | 下载核验（ffmpeg 转封装 / 进度 / 全量解码核验 / 两轮重试） | ✅ `v0.4-download` |
 | M5 | 批量与报告（队列 / 并发语义 / 续传 / 汇总 / 失败清单） | ✅ `v0.5-batch` |
 | M6 | 服务与 GUI（Hono REST+SSE / Vue 3 / 配置持久化） | ✅ `v0.6-gui` |
-| M7 | 桌面壳（Tauri 2 + 内嵌 Node sidecar） | ⏸ 脚手架就位，本机缺 Rust/MSVC 未编译（见 `apps/desktop/README.md`） |
-| M8 | 交付（README / SELFTEST / 单测报告） | ✅ `v1.0` |
+| M7 | ~~桌面壳（Tauri 2 原生窗口）~~ | ❌ **取消**：按需求变更，GUI 走浏览器，不打包原生 UI |
+| M8 | 交付（README / SELFTEST / 单测报告 / 浏览器版绿色包） | ✅ `v1.0` → `v1.1` |
 
 真实自测记录见 [`docs/SELFTEST.md`](docs/SELFTEST.md)，计划与需求确认见 [`docs/PLAN.md`](docs/PLAN.md)。
 
@@ -83,6 +83,8 @@ node apps/server/dist/index.js --port 8787
 ```
 
 把那条 `url` 粘到浏览器（推荐用 **ego lite** 打开，和下载用的浏览器通道一致，方便对照）即可。
+
+或者直接用打包好的绿色包（见下文「打包」）：双击 `启动.cmd`，它会起本地服务并把 GUI 交给浏览器。
 界面分 4 块：
 
 1. **输入 + 解析预览** —— 粘贴链接/分享文本，先看世代、页面类型、pageId（判定错了当场就能发现）
@@ -151,6 +153,31 @@ ego lite 是单实例 + 用户真实 profile，并行会互抢标签页且更容
 | 1 | 参数/环境错误（含 ffmpeg 缺失） |
 | 3 | 部分或全部失败（失败条目写进 `reports/failures-<ts>.json`） |
 | 130 | 用户中断（Ctrl+C，保留 `.part`，可用 `--resume` 继续） |
+
+## 打包（浏览器版绿色包）
+
+GUI 是纯网页，所以"打包"= 把**运行时 + 本地服务 + 前端**装进一个文件夹，不需要任何原生窗口/安装器：
+
+```bash
+pnpm package:web
+```
+
+产物：
+
+```
+dist/acfun-download-<version>-win-x64/      # 绿色包目录
+├─ node.exe                                 # 内嵌 Node 运行时（用户不必装 Node）
+├─ server/index.js                          # 自包含服务端 bundle（含全部依赖，无 node_modules）
+├─ web/**                                   # 前端静态资源
+├─ 启动.cmd                                  # 双击：起服务 + 用默认浏览器打开 GUI
+└─ 使用说明.txt
+dist/acfun-download-<version>-win-x64.zip   # 同一份的压缩包（约 33MB）
+```
+
+双击 `启动.cmd` 的行为：用内置 node 启动本地服务（`127.0.0.1` + 随机端口 + 一次性 token）→
+自动打开默认浏览器 → 关闭那个黑窗口即停止服务。想固定用 ego lite 看，就把窗口里打印的链接粘到 ego。
+
+> **不内嵌 ffmpeg**：安装后在 PATH 里即可；或在 GUI 设置页填写路径（设置页顶部会黄色告警并提示）。
 
 ## 产物
 
@@ -242,8 +269,8 @@ packages/core/   全部业务逻辑 + 单测
   test/          vitest 单测（141 条）
 apps/cli/        acfun 命令行
 apps/server/     本地服务（Hono REST + SSE）
-apps/web/        Vue 3 + Vite 前端
-apps/desktop/    Tauri 2 壳（M7 脚手架，未编译）
+apps/web/        Vue 3 + Vite 前端（GUI 就是浏览器里的网页）
+scripts/         打包脚本（浏览器版绿色包）
 docs/            PLAN.md / SELFTEST.md
 ```
 
@@ -256,6 +283,7 @@ pnpm test         # 141 条单测（含真实 ffmpeg 集成测试：AES-128 HLS 
 pnpm typecheck    # 三个包的类型检查
 pnpm build:web    # 前端产物
 pnpm dev:web      # 单独调前端（vite 代理 /api 到 127.0.0.1:8787）
+pnpm package:web  # 打浏览器版绿色包（dist/，含 node.exe + 前端 + 服务端）
 ```
 
 约定：主干任一 commit 都能构建/跑单测；每个里程碑一个提交 + 一个 tag。
@@ -272,13 +300,14 @@ pnpm dev:web      # 单独调前端（vite 代理 /api 到 127.0.0.1:8787）
 | `v0.5-batch` | M5 批量与报告：队列 / 并发语义 / 续传 / 失败清单 |
 | `v0.6-gui` | M6 服务与 GUI：Hono REST+SSE + Vue 3 |
 | `v1.0` | M8 交付：README + SELFTEST + 单测报告 |
+| `v1.1` | 取消原生壳，改为浏览器版绿色包 + 打包脚本 + 端到端 GUI 自测 |
 
-M7（`v0.7-desktop`）待 Rust + MSVC 就绪后补：`apps/desktop/README.md` 里有完整步骤。
+M7 原生壳已按需求取消（GUI 走浏览器）；如以后仍想做原生窗口，`docs/PLAN.md` 末尾记录了当时的取舍。
 
 ## 已知限制
 
 1. 仅 Windows x64。
 2. 官方站（`www.acfun.cn`）只做尽力解析，可能整段不可用。
 3. 弹幕 / 字幕未实现（实验性占位，只告警）。
-4. 桌面 exe 未编译（本机缺 Rust + MSVC）；CLI 与服务 + 浏览器 GUI 已验证可用。
+4. GUI 跑在浏览器里（本地服务 + 网页），**没有原生窗口/托盘**；绿色包内嵌 Node 运行时，双击 `启动.cmd` 即可。
 5. 马甲域边缘节点会随机 RST、分片签名分钟级过期 —— 都靠"整片重取清单"兜，不是无限重试。

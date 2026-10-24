@@ -381,3 +381,15 @@ ego lite 是**单一 GUI 实例 + 用户真实 profile**，任务空间并行会
 4. 单测框架选 **vitest**（而非 node:test），因需 Vue 组件测试与 fake timers——是否同意。
 
 > 确认（或提出修改）后，我将：① 建 M0 骨架 → ② 按里程碑逐段编码并提交 → ③ 跑 3 条真实自测并写 `docs/SELFTEST.md`。
+
+---
+
+## 12. 实施变更记录（开发中追加）
+
+- **2026-10-24 · M7 取消（需求变更）**：GUI 是 Web GUI，要在浏览器里运行，**不打包原生 UI**。
+  原先的 Tauri 2 原生壳（含内嵌 Node sidecar 的原生窗口方案）已移除；改为**浏览器版绿色包**：
+  `node.exe` + 自包含 `server/index.js` + `web/**` + `启动.cmd`（双击起本地服务并用默认浏览器打开 GUI）。
+  打包脚本：`scripts/package-web.mjs`（`pnpm package:web`），产物在 `dist/`。
+  前端验证统一用 **ego lite 的独立 task space** 做（与下载通道同一个浏览器，便于对照）。
+- 顺带修正 §2 的环境判断：本机 **MSVC C++ 工具（14.44）与 Windows SDK 10.0.26100 其实已安装**，
+  Rust（rustup stable-x86_64-pc-windows-msvc）也已就绪；之前判为缺失是因为不在 Git Bash 的 PATH 里。
