@@ -21,4 +21,4 @@ export * from './pipeline.js';
 export * from './concurrency.js';
 export * from './report/index.js';
 export * from './assets/index.js';
-export const CORE_VERSION = '1.0.0';
+export const CORE_VERSION = '1.3.0';
