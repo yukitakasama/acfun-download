@@ -125,6 +125,9 @@ async function captureOnce(o: CaptureOnceOptions): Promise<{ channel: 'ego' | 'c
     return captureOnce({ ...o, channel: 'chrome' });
   }
 
+  if (channel === 'chrome') {
+    o.warn?.('当前使用 Chrome + CDP 兜底通道；推荐优先用 ego lite（用户真实 profile、更少风控、天然带登录态）');
+  }
   log(o, `通道: ${channel === 'ego' ? 'ego lite' : 'Chrome+CDP'}；世代: ${o.generation}`);
 
   const records =

@@ -18,7 +18,7 @@
 | M4 | 下载核验（ffmpeg / 全量解码核验） | ✅ |
 | M5 | 批量与报告 | ✅ |
 | M6 | 服务与 GUI | ✅ |
-| M7 | 桌面壳（Tauri 2，需 Rust + MSVC） | ⬜ |
+| M7 | 桌面壳（Tauri 2，需 Rust + MSVC） | ⏸ 脚手架就位，本机缺 Rust/MSVC 未编译 |
 | M8 | 交付（README / SELFTEST） | ⬜ |
 
 ## 目录结构
