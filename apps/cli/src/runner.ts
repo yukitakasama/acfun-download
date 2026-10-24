@@ -22,6 +22,8 @@ export interface RunnerConfig {
   intervalMs: number;
   log: CliLog;
   signal: AbortSignal;
+  /** 注入任务执行器（单测用；默认 core 的 runTask）。 */
+  taskRunner?: typeof runTask;
 }
 
 export interface RunnerOutcome {
@@ -38,6 +40,7 @@ function formatProgress(p: TaskProgress, totalSec?: number): string {
 /** 跑完所有任务。结果顺序与输入顺序一致。 */
 export async function runAll(cfg: RunnerConfig): Promise<RunnerOutcome> {
   const { items, pipeline, log, signal } = cfg;
+  const taskRunner = cfg.taskRunner ?? runTask;
   const total = items.length;
 
   const onEvent = (ev: TaskEvent): void => {
@@ -77,10 +80,7 @@ export async function runAll(cfg: RunnerConfig): Promise<RunnerOutcome> {
     async (item, index) => {
       const taskId = `t${index + 1}`;
       try {
-        return await runTask(
-          { item, index: index + 1, total, taskId },
-          { ...pipeline, onEvent },
-        );
+        return await taskRunner({ item, index: index + 1, total, taskId }, { ...pipeline, onEvent });
       } catch (e) {
         log.debug(`任务级异常: ${e instanceof Error ? e.message : String(e)}`);
         return {

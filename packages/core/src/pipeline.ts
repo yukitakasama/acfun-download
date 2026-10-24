@@ -6,7 +6,8 @@
  * 浏览器阶段恒串行；本模块只负责「一条」，并发/队列在上层（CLI / server）。
  */
 import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { writeAssets } from './assets/index.js';
 import { backoffDelay, sleep } from './net.js';
 import { browserLock, type Mutex } from './concurrency.js';
 import { AppError, classifyError } from './errors.js';
@@ -61,6 +62,8 @@ export interface PipelineOptions {
   resume?: boolean;
   /** 浏览器阶段串行锁（并发 >1 时保证取清单不并行）。 */
   browserLock?: Mutex;
+  /** 注入解析实现（单测用；默认 core 的 resolveOne）。 */
+  resolveFn?: typeof resolveOne;
   onEvent?: (e: TaskEvent) => void;
   signal?: AbortSignal;
 }
@@ -107,6 +110,7 @@ function buildResult(
  */
 export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promise<TaskResult> {
   const startedAt = Date.now();
+  let lastCtx: AttemptContext | null = null;
   const { item, index, total, taskId } = input;
   let attempts = 0;
   let lastError: AppError | null = null;
@@ -120,7 +124,8 @@ export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promi
       // ---- 1. 解析（每轮都重取清单：分片签名只有几分钟时效）----
       emit(opts, { type: 'task', taskId, url: item.url, status: 'resolving', index, total });
       const lock = opts.browserLock ?? browserLock;
-      const resolved = await lock.run(() => resolveOne(item, {
+      const resolveFn = opts.resolveFn ?? resolveOne;
+      const resolved = await lock.run(() => resolveFn(item, {
         channel: opts.channel ?? 'auto',
         workDir: opts.workDir,
         timeoutSec: opts.timeoutSec ?? 30,
@@ -133,6 +138,8 @@ export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promi
         ...(opts.signal === undefined ? {} : { signal: opts.signal }),
       }));
       if (resolved.warn) logWarn(opts, taskId, resolved.warn);
+      // 用户已经按了 Ctrl+C：别再下新的了
+      if (opts.signal?.aborted) throw new AppError('USER_ABORT', '已中断，未开始下载');
 
       // ---- 2. 命名 ----
       const ext = extForContainer(opts.container);
@@ -165,6 +172,7 @@ export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promi
       }
 
       const ctx: AttemptContext = { resolved, baseName, targetPath: target.path };
+      lastCtx = ctx;
 
       // ---- 3. 续传：核验已有 .part，干净就直接转正 ----
       if (opts.resume && attempt === 1) {
@@ -243,6 +251,32 @@ export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promi
       const fileSize = statSync(target.path).size;
       logInfo(opts, taskId, `核验通过：${v.frames} 帧 / ${v.durationSec.toFixed(1)}s / ${fileSize} 字节`);
 
+      // ---- 7. 附加资源（失败只告警，不阻塞交付）----
+      const assets = await writeAssets(
+        {
+          dir: opts.outDir,
+          baseName: basename(target.path, ext),
+          meta: ctx.resolved.meta,
+          pageUrl: ctx.resolved.target.url,
+          generation: ctx.resolved.target.generation,
+          manifestDurationSec: ctx.resolved.manifest.durationSec,
+          segments: ctx.resolved.manifest.segments,
+          ...(ctx.resolved.manifest.variantBandwidth === undefined
+            ? {}
+            : { variantBandwidth: ctx.resolved.manifest.variantBandwidth }),
+          verified: { frames: v.frames, durationSec: v.durationSec, manifestDurationSec: ctx.resolved.manifest.durationSec },
+          fileSize,
+        },
+        {
+          meta: opts.meta,
+          cover: opts.cover,
+          danmaku: opts.danmaku,
+          subtitle: opts.subtitle,
+          timeoutMs: (opts.timeoutSec ?? 30) * 1000,
+        },
+      );
+      for (const w of assets.warnings) logWarn(opts, taskId, w);
+
       const result = buildResult(taskId, item, 'success', {
         title: ctx.resolved.meta.title,
         filePath: target.path,
@@ -260,7 +294,24 @@ export async function runTask(input: RunTaskInput, opts: PipelineOptions): Promi
       logWarn(opts, taskId, `第 ${attempt} 轮失败：${err.kind}: ${err.message}`);
 
       // 需鉴权/内容不可播/用户中断：不重试，立即停
-      if (err.kind === 'USER_ABORT') break;
+      if (err.kind === 'USER_ABORT') {
+        // 落 resume.json：目标路径、清单 URL、auth_key 过期时间、attempt（PLAN Q9）
+        try {
+          writeResumeState(opts.outDir, {
+            taskId,
+            url: item.url,
+            attempt,
+            ...(lastCtx === null ? {} : { targetPath: lastCtx.targetPath }),
+            ...(lastCtx === null ? {} : { playlistUrl: lastCtx.resolved.manifest.playlistUrl }),
+            ...(lastCtx?.resolved.manifest.keyExpireAt === undefined
+              ? {}
+              : { keyExpireAt: lastCtx.resolved.manifest.keyExpireAt }),
+          });
+        } catch {
+          /* resume 状态写不出来不影响退出语义 */
+        }
+        break;
+      }
       if (!err.retryable) break;
       if (attempt >= Math.max(1, opts.retries)) break;
       const delay = backoffDelay(attempt);

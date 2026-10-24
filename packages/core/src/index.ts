@@ -20,4 +20,5 @@ export * from './download/index.js';
 export * from './pipeline.js';
 export * from './concurrency.js';
 export * from './report/index.js';
-export const CORE_VERSION = '0.4.0';
+export * from './assets/index.js';
+export const CORE_VERSION = '0.5.0';
