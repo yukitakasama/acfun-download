@@ -1,0 +1,27 @@
+{
+  "name": "acfun-download",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AcFun 马甲域视频下载工具（CLI + Web GUI）",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --workspace-concurrency=1 build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r typecheck",
+    "cli": "node apps/cli/dist/index.js",
+    "server": "node apps/server/dist/index.js",
+    "dev:web": "pnpm --filter @acfun/web dev",
+    "dev:server": "pnpm --filter @acfun/server dev",
+    "build:web": "pnpm --filter @acfun/web build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.3"
+  }
+}
