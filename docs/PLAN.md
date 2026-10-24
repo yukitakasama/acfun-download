@@ -401,3 +401,41 @@ ego lite 是**单一 GUI 实例 + 用户真实 profile**，任务空间并行会
   + `packaging/installer.nsi`（按用户安装到 `%LOCALAPPDATA%\Programs\AcFun下载`，快捷方式/卸载/保留用户数据）
   + 服务端新增 `--state-file` 与 `POST /api/shutdown`（界面右上角「退出服务」）。
   打包脚本：`pnpm package:installer`。
+
+---
+
+## 需求变更记录：界面改为原生桌面 GUI（v1.4）
+
+**背景**：`v1.1`–`v1.3` 采用「本地服务 + 浏览器 GUI」。实际试用后认为 WebUI 的视觉与操作手感不理想，
+要求改成原生桌面应用，同时**不得移除 WebUI 的测试能力**。
+
+**方案取舍**：
+
+| 方案 | 结论 |
+|---|---|
+| Tauri 2 / WebView 再包一层 | ❌ 仍是网页渲染，视觉问题解决不了，还得额外处理 WebView2 运行时 |
+| 整个下载引擎重写成 Rust | ❌ 风险与工期都不可接受，且会丢掉已通过 157 条测试的 TS 实现 |
+| **Rust + egui 原生窗口，HTTP 驱动现有本地服务** | ✅ 采纳 |
+
+**落地结构**：
+
+```
+AcFunDownload.exe (Rust/eframe+egui)  ── HTTP ──▶  node.exe server/index.js  ──▶  core(TS)
+        │                                              │
+        └── 负责窗口/交互/服务生命周期                  └── 同时伺服 web/ 给 WebUI 调试
+```
+
+- GUI 只做「客户端 + 服务管理器」：读 `%APPDATA%cfun-download\server.json` 复用已有实例，
+  否则用同目录 `node.exe` 拉起（`CREATE_NO_WINDOW`），关窗时若由自己拉起则 `POST /api/shutdown`。
+- 视觉全部自绘（配色 / 圆角 / hover / 进度条 / 开关 / 胶囊标签），不依赖 WebView；
+  中文字体按 `ACFUN_UI_FONT` > 微软雅黑 > 等线 > 黑体 > 宋体 的顺序从系统加载（不分发字库，规避授权问题）。
+- 通信层用「一个工作线程 + 300ms 轮询 `/api/tasks`」，不用 SSE —— 任务量小，但换来实现稳定、
+  断线可自愈、UI 永不阻塞（提交/取消/重试/保存配置都在工作线程串行执行）。
+- WebUI 保留：服务照旧伺服 `web/`，GUI 底栏有「在浏览器中打开 WebUI」，`--webui` 也能只开网页。
+- 打包：`package:installer`（NSIS）与 `package:portable`（zip）共用同一个 `stage()`，内容完全一致。
+
+**验收手段**（无窗口、可脚本化）：
+
+- `AcFunDownload.exe --check` → 输出 `%TEMP%cfun-gui-check.json`：
+  `{ok, version, font, cjkGlyphs, port, spawned, healthOk, configOk, tasksOk}`，
+  其中 `cjkGlyphs` 用 egui 的 `Fonts::has_glyphs` 真实断言中文字形存在（杜绝豆腐块）。

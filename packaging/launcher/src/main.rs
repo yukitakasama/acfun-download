@@ -1,258 +1,198 @@
-//! AcFun 下载 · 启动器
+//! AcFun 下载 · 原生桌面 GUI（Rust + egui）
 //!
-//! 用户双击桌面/开始菜单图标时跑的就是它。行为刻意做到「零原生 UI」：
-//!   1. 读 `%APPDATA%\acfun-download\server.json`；若里面的服务还活着（健康检查通过）→ 直接开浏览器
-//!   2. 否则用同目录的 node.exe 拉起本地服务（`CREATE_NO_WINDOW`，后台跑）
-//!   3. 等 service 把运行信息（随机端口 + 一次性 token）写进 server.json，再打开默认浏览器
-//!   4. 自身立即退出 —— 不常驻、不留窗口；服务由网页里的「退出服务」按钮关停
+//! 结构：本程序只是「客户端 + 服务管理器」，下载逻辑仍在随包分发的 node 服务里
+//! （`server/index.js`），所以 CLI、WebUI、桌面 GUI 三条入口共用同一套实现。
 //!
-//! 只用标准库：不引第三方 crate，编译产物只有几十 KB，build 不需要联网。
+//! 命令行：
+//!   AcFunDownload.exe               打开桌面窗口（默认）
+//!   AcFunDownload.exe --webui       不窗口，直接用浏览器打开 WebUI（调试用）
+//!   AcFunDownload.exe --shutdown    停掉后台服务（卸载程序/脚本用）
 
 #![windows_subsystem = "windows"]
 
-use std::env;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+mod api;
+mod app;
+mod server;
+mod theme;
+mod widgets;
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+use std::time::Duration;
 
-#[link(name = "user32")]
-extern "system" {
-    fn MessageBoxW(hwnd: *mut u16, text: *const u16, caption: *const u16, utype: u32) -> i32;
-}
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let app_dir = server::app_dir();
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn alert(msg: &str) {
-    // 自动化/排障时用 ACFUN_NO_ALERT=1：写文件而不是弹模态框（模态框会卡住脚本）
-    if env::var("ACFUN_NO_ALERT").as_deref() == Ok("1") {
-        let path = state_file_path().with_file_name("launcher-error.txt");
-        let _ = fs::write(path, msg);
+    if args.iter().any(|a| a == "--shutdown") {
+        if let Some((port, token)) = read_state_for_shutdown() {
+            let _ = server::request_shutdown(port, &token);
+        }
         return;
     }
-    let text = wide(msg);
-    let caption = wide("AcFun 下载");
-    unsafe {
-        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), 0x0000_0040);
-    }
-}
 
-/// `%APPDATA%\acfun-download\server.json`（与 CLI/服务端同一位置）。
-fn state_file_path() -> PathBuf {
-    let appdata = env::var("APPDATA").unwrap_or_else(|_| {
-        let home = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".into());
-        format!("{home}\\AppData\\Roaming")
-    });
-    let dir = Path::new(&appdata).join("acfun-download");
-    let _ = fs::create_dir_all(&dir);
-    dir.join("server.json")
-}
-
-fn log_path() -> PathBuf {
-    state_file_path().with_file_name("server.log")
-}
-
-/// 极简 JSON 取值：够用即可（只读我们自己写的那份）。
-fn json_str<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    let pat = format!("\"{key}\"");
-    let i = text.find(&pat)?;
-    let rest = &text[i + pat.len()..];
-    let colon = rest.find(':')?;
-    let rest = rest[colon + 1..].trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(&rest[..end])
-}
-
-fn json_num(text: &str, key: &str) -> Option<u16> {
-    let pat = format!("\"{key}\"");
-    let i = text.find(&pat)?;
-    let rest = &text[i + pat.len()..];
-    let colon = rest.find(':')?;
-    let rest = rest[colon + 1..].trim_start();
-    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-    digits.parse::<u16>().ok()
-}
-
-/// 原始 HTTP GET（不引 HTTP 库）：只关心能不能拿到 200。
-fn health_ok(port: u16) -> bool {
-    let addr = format!("127.0.0.1:{port}");
-    let sock = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let mut stream = match TcpStream::connect_timeout(&sock, Duration::from_millis(600)) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(1200)));
-    let req = format!("GET /api/health HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
-    if stream.write_all(req.as_bytes()).is_err() {
-        return false;
-    }
-    let mut buf = [0u8; 256];
-    let n = match stream.read(&mut buf) {
-        Ok(n) => n,
-        Err(_) => return false,
-    };
-    String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200") || String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.0 200")
-}
-
-/// 让正在跑的服务优雅退出（卸载程序与「退出服务」都走这条）。
-fn request_shutdown(port: u16, token: &str) -> bool {
-    let sock = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let mut stream = match TcpStream::connect_timeout(&sock, Duration::from_millis(800)) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(2000)));
-    let req = format!(
-        "POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Acfun-Token: {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    );
-    if stream.write_all(req.as_bytes()).is_err() {
-        return false;
-    }
-    let mut buf = [0u8; 128];
-    let _ = stream.read(&mut buf);
-    // 等端口真的关掉
-    let deadline = Instant::now() + Duration::from_secs(6);
-    while Instant::now() < deadline {
-        sleep(Duration::from_millis(200));
-        if !health_ok(port) {
-            return true;
+    // 无窗口自检：字体/服务/接口是否都好（给打包脚本与排障用，方便脚本化验收）
+    if args.iter().any(|a| a == "--check") {
+        let (ok, report) = run_check(&app_dir);
+        let out = std::env::var("ACFUN_CHECK_OUT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("acfun-gui-check.json"));
+        if let Some(parent) = out.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
+        let _ = std::fs::write(&out, format!("{}\n", report));
+        std::process::exit(if ok { 0 } else { 1 });
     }
-    false
+
+    if args.iter().any(|a| a == "--webui") {
+        match server::ensure(&app_dir) {
+            Ok(info) => {
+                let url = format!("http://127.0.0.1:{}/?token={}", info.port, info.token);
+                // ACFUN_NO_BROWSER=1：只把 URL 写到文件里，不开浏览器（自动化/CI 用）
+                if std::env::var("ACFUN_NO_BROWSER").as_deref() == Ok("1") {
+                    let path = server::state_file().with_file_name("webui-url.txt");
+                    let _ = std::fs::write(
+                        path,
+                        format!(
+                            "{url}
+"
+                        ),
+                    );
+                } else {
+                    server::open_browser(&url);
+                }
+            }
+            Err(e) => server::message_box("AcFun 下载", &e),
+        }
+        return;
+    }
+
+    let boot = server::ensure(&app_dir);
+
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("AcFun 视频下载")
+            .with_inner_size([1100.0, 760.0])
+            .with_min_inner_size([960.0, 620.0])
+            .with_app_id("acfun-download"),
+        vsync: true,
+        ..Default::default()
+    };
+
+    let run = eframe::run_native(
+        "AcFun 视频下载",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, boot)))),
+    );
+
+    if let Err(e) = run {
+        server::message_box("AcFun 下载", &format!("界面启动失败：{e}"));
+    }
+
+    // 窗口关闭后稍等一会儿，让 App::drop 里的 shutdown 请求发出去
+    std::thread::sleep(Duration::from_millis(50));
 }
 
-fn read_state(path: &Path) -> Option<(u16, String)> {
-    let text = fs::read_to_string(path).ok()?;
-    let port = json_num(&text, "port")?;
-    let token = json_str(&text, "token")?.to_string();
-    if port == 0 || token.is_empty() {
-        return None;
-    }
+fn read_state_for_shutdown() -> Option<(u16, String)> {
+    let text = std::fs::read_to_string(server::state_file()).ok()?;
+    let port = field_num(&text, "port")?;
+    let token = field_str(&text, "token")?;
     Some((port, token))
 }
 
-fn open_browser(url: &str) {
-    // `start "" <url>`：交给系统默认浏览器；空标题参数不能省（否则带引号的 URL 会被当成标题）
-    let mut cmd = Command::new("cmd");
-    cmd.args(["/c", "start", "", url])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    let _ = cmd.spawn();
+fn field_str(text: &str, key: &str) -> Option<String> {
+    let pat = format!("\"{key}\"");
+    let i = text.find(&pat)?;
+    let rest = &text[i + pat.len()..];
+    let rest = rest[rest.find(':')? + 1..].trim_start();
+    let rest = rest.strip_prefix('"')?;
+    Some(rest[..rest.find('"')?].to_string())
 }
 
-fn spawn_server(app_dir: &Path, state: &Path) -> Result<(), String> {
-    let node = app_dir.join("node.exe");
-    let js = app_dir.join("server").join("index.js");
-    let web = app_dir.join("web");
-    if !node.exists() {
-        return Err(format!("缺少 node.exe（应用安装不完整）：\n{}", node.display()));
-    }
-    if !js.exists() {
-        return Err(format!("缺少服务端文件：\n{}", js.display()));
-    }
-    if !web.join("index.html").exists() {
-        return Err(format!("缺少前端资源：\n{}", web.display()));
-    }
-
-    // 服务日志落到 %APPDATA%\acfun-download\server.log，方便排查
-    let log_out = OpenOptions::new().create(true).append(true).open(log_path()).ok();
-    let log_err = log_out.as_ref().and_then(|f| f.try_clone().ok());
-
-    let mut cmd = Command::new(&node);
-    cmd.arg(&js)
-        .arg("--port")
-        .arg("0")
-        .arg("--web-dir")
-        .arg(&web)
-        .arg("--state-file")
-        .arg(state)
-        .arg("--no-handshake")
-        .current_dir(app_dir)
-        .stdin(Stdio::null());
-    match log_out {
-        Some(f) => cmd.stdout(Stdio::from(f)),
-        None => cmd.stdout(Stdio::null()),
-    };
-    match log_err {
-        Some(f) => cmd.stderr(Stdio::from(f)),
-        None => cmd.stderr(Stdio::null()),
-    };
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    cmd.spawn().map_err(|e| format!("启动本地服务失败：{e}"))?;
-    Ok(())
+fn field_num(text: &str, key: &str) -> Option<u16> {
+    let pat = format!("\"{key}\"");
+    let i = text.find(&pat)?;
+    let rest = &text[i + pat.len()..];
+    let rest = rest[rest.find(':')? + 1..].trim_start();
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
 }
 
-fn main() {
-    let exe = env::current_exe().unwrap_or_default();
-    let app_dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
-    let state = state_file_path();
+/// 无窗口自检：中文能否渲染、服务能否拉起、三个只读接口是否可用。
+fn run_check(app_dir: &std::path::Path) -> (bool, String) {
+    let mut report = serde_json::Map::new();
+    let mut ok = true;
 
-    // `AcFunDownload.exe --shutdown`：给卸载程序/脚本用，停掉后台服务后退出
-    if env::args().any(|a| a == "--shutdown") {
-        if let Some((port, token)) = read_state(&state) {
-            let _ = request_shutdown(port, &token);
+    report.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+    match crate::theme::cjk_font_path() {
+        Some(path) => {
+            report.insert("font".into(), path.display().to_string().into());
         }
-        return;
-    }
-
-    // 1) 已有服务在跑 → 直接开浏览器
-    if let Some((port, token)) = read_state(&state) {
-        if health_ok(port) {
-            let url = format!("http://127.0.0.1:{port}/?token={token}");
-            if env::var("ACFUN_NO_BROWSER").as_deref() != Ok("1") {
-                open_browser(&url);
-            } else {
-                let _ = File::create(state.with_file_name("launcher-would-open.txt"))
-                    .and_then(|mut f| f.write_all(url.as_bytes()));
-            }
-            return;
+        None => {
+            ok = false;
+            report.insert("font".into(), "未找到系统中文字体".into());
         }
-        // 状态文件过期（服务被强杀过）：删掉重来
-        let _ = fs::remove_file(&state);
     }
 
-    // 2) 拉起服务
-    if let Err(e) = spawn_server(&app_dir, &state) {
-        alert(&e);
-        return;
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    // 字体是「首帧才构建」的：跑一个空帧再问字形，否则会 panic
+    let mut glyphs = false;
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(800.0, 600.0),
+        )),
+        ..Default::default()
+    };
+    let _ = ctx.run(input, |ctx| {
+        glyphs = ctx.fonts(|f| {
+            f.has_glyphs(
+                &egui::FontId::proportional(14.0),
+                "中文测试核验速度失败完成",
+            )
+        });
+    });
+    report.insert("cjkGlyphs".into(), glyphs.into());
+    if !glyphs {
+        ok = false;
     }
 
-    // 3) 等它把运行信息写出来（正常 1s 内；冷启动不超过 20s）
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let mut last_err = String::from("本地服务启动超时（20s 内没有就绪）。详见 %APPDATA%\\acfun-download\\server.log");
-    while Instant::now() < deadline {
-        sleep(Duration::from_millis(250));
-        if let Some((port, token)) = read_state(&state) {
-            if health_ok(port) {
-                let url = format!("http://127.0.0.1:{port}/?token={token}");
-                if env::var("ACFUN_NO_BROWSER").as_deref() != Ok("1") {
-                    open_browser(&url);
-                } else {
-                    let _ = File::create(state.with_file_name("launcher-would-open.txt"))
-                        .and_then(|mut f| f.write_all(url.as_bytes()));
+    match server::ensure(app_dir) {
+        Ok(info) => {
+            report.insert("port".into(), info.port.into());
+            report.insert("spawned".into(), info.spawned.into());
+            let client = api::Client::new(info.port, info.token.clone());
+            for (name, path) in [
+                ("health", "/api/health"),
+                ("config", "/api/config"),
+                ("tasks", "/api/tasks"),
+            ] {
+                match client.get(path) {
+                    Ok(v) => {
+                        report.insert(
+                            format!("{name}Ok"),
+                            v.get("ok")
+                                .and_then(|x| x.as_bool())
+                                .unwrap_or(false)
+                                .into(),
+                        );
+                    }
+                    Err(e) => {
+                        ok = false;
+                        report.insert(format!("{name}Ok"), false.into());
+                        report.insert(format!("{name}Error"), e.into());
+                    }
                 }
-                return;
             }
-            last_err = format!("本地服务端口 {port} 无响应。详见 %APPDATA%\\acfun-download\\server.log");
+            if info.spawned {
+                let _ = server::request_shutdown(info.port, &info.token);
+            }
+        }
+        Err(e) => {
+            ok = false;
+            report.insert("serviceError".into(), e.into());
         }
     }
-    alert(&last_err);
+
+    report.insert("ok".into(), ok.into());
+    (ok, serde_json::Value::Object(report).to_string())
 }

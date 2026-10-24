@@ -1,6 +1,13 @@
 # AcFun 视频下载工具
 
-下载 AcFun 系列（马甲域 SPA）站点的**公开视频**：命令行 + 本地 Web GUI 双入口，共用同一套 core 业务逻辑。
+下载 AcFun 系列（马甲域 SPA）站点的**公开视频**。三个入口共用同一套 core 业务逻辑：
+
+| 入口 | 形态 | 说明 |
+|---|---|---|
+| **原生桌面 GUI** | Rust + egui 窗口（主入口） | 双击 `AcFunDownload.exe` 开窗口，不依赖浏览器显示界面 |
+| WebUI | 本地服务 + Vue 3 页面 | **保留为前端调试入口**（GUI 底栏「在浏览器中打开 WebUI」/ `--webui`） |
+| CLI | `acfun` 命令 | 批量、脚本、CI |
+
 只做三件事：**取清单 → ffmpeg 转封装 → 全量解码核验**。核验不过不交付。
 
 > ### 边界声明（硬编码，不可配置关闭）
@@ -23,8 +30,8 @@
 | M4 | 下载核验（ffmpeg 转封装 / 进度 / 全量解码核验 / 两轮重试） | ✅ `v0.4-download` |
 | M5 | 批量与报告（队列 / 并发语义 / 续传 / 汇总 / 失败清单） | ✅ `v0.5-batch` |
 | M6 | 服务与 GUI（Hono REST+SSE / Vue 3 / 配置持久化） | ✅ `v0.6-gui` |
-| M7 | ~~桌面壳（Tauri 2 原生窗口）~~ | ❌ **取消**：按需求变更，GUI 走浏览器，不打包原生 UI |
-| M8 | 交付（README / SELFTEST / 单测报告 / 安装程序） | ✅ `v1.0` → `v1.3` |
+| M7 | 原生桌面 GUI（Rust + egui 窗口，替代 Tauri/WebView 方案） | ✅ `v1.4` |
+| M8 | 交付（README / SELFTEST / 单测报告 / 安装包 + 便携版） | ✅ `v1.0` → `v1.4` |
 
 真实自测记录见 [`docs/SELFTEST.md`](docs/SELFTEST.md)，计划与需求确认见 [`docs/PLAN.md`](docs/PLAN.md)。
 
@@ -38,6 +45,7 @@
 | **ffmpeg / ffprobe** | **必需** | 转封装与核验；**不内嵌**，需在 PATH 或配置里填路径 |
 | **ego-browser（ego lite）** | **必需（默认通道）** | 复用用户真实 profile：天然带登录态、更少被 WAF 拦、更不容易触发风控 |
 | Chrome / Edge | 可选（最后兜底） | 仅在 ego lite 不可用时使用；本机以 ego lite 为准，**不推荐**使用此通道 |
+| Rust（cargo）+ MSVC Build Tools | 仅**构建** GUI 需要 | 运行打包好的安装包/便携版**不需要**；GUI 用 egui/eframe（OpenGL），无 WebView 依赖 |
 
 ## 安装
 
@@ -45,8 +53,11 @@
 git clone <repo> && cd ACFUN-download
 pnpm install
 pnpm build          # 构建 core / cli / server
-pnpm build:web      # 构建前端（GUI 需要）
+pnpm build:web      # 构建 WebUI（浏览器调试入口）
+cargo build --release --manifest-path packaging/launcher/Cargo.toml   # 构建原生 GUI
 ```
+
+> 只要用现成的安装包/便携版，不需要装 Node 与 Rust —— 两者都已随包分发。
 
 命令行入口：`node apps/cli/dist/index.js <command> …`（`apps/cli/package.json` 里已声明 `bin: acfun`，
 `pnpm link --global` 或 `npm i -g .` 后可直接用 `acfun`）。
@@ -75,26 +86,56 @@ cat urls.txt | acfun dl -
 acfun dl 2164411 2164502 --origin https://<马甲域> -o D:/好看的
 ```
 
-### GUI
+### 原生桌面 GUI（主入口）
+
+```bash
+# 开发期：直接跑 cargo 产物（会自动拉起同目录的 server/index.js）
+cargo run --release --manifest-path packaging/launcher/Cargo.toml
+# 或者用打包脚本产出安装包/便携版后双击 AcFunDownload.exe
+```
+
+窗口打开时会自动在后台拉起本地服务（只监听 `127.0.0.1`、随机端口、一次性 token）；
+关闭窗口时，如果服务是本程序拉起的，会一并停掉，**不留后台进程**（复用了别人已启动的实例则不动它）。
+
+界面：
+
+1. **顶栏** —— 连接状态、成功/失败/跳过统计、设置、停止服务
+2. **输入卡** —— 多行粘贴链接 / 整段分享文本，`Ctrl+Enter` 直接开始；「解析预览」先看世代、类型、pageId
+   （判定错了当场发现，不用等下载失败）；支持把 `.txt` 拖进窗口
+3. **队列** —— 每任务一张卡片：状态点、标题、百分比、进度条、**实时速度 / 已下载字节 / x-y 分片 /
+   已处理时长 / 预计剩余**；下载期百分比封顶 99.5%（不会假满格），核验阶段单独提示；
+   失败卡片带 `kind + message + suggestion`，可取消 / 重试 / 打开 / 定位
+4. **设置侧栏** —— 输出目录（原生选择框）、容器、重名策略、命名模式/模板、并发、重试、超时、间隔、
+   浏览器通道、封面/弹幕/字幕/元数据开关、ffmpeg/ffprobe 路径；底部显示环境探测结果
+5. **底栏** —— 本地服务地址、输出目录、打开目录、**在浏览器中打开 WebUI**
+
+命令行开关：
+
+```
+AcFunDownload.exe            打开桌面窗口（默认）
+AcFunDownload.exe --webui    不开窗口，直接用浏览器打开 WebUI（前端调试 / 对照用）
+AcFunDownload.exe --shutdown 停掉后台服务（卸载程序、脚本用）
+AcFunDownload.exe --check    无窗口自检：中文字体/服务/接口，结果写 %TEMP%cfun-gui-check.json
+```
+
+### WebUI（前端调试入口）
+
+WebUI 没有删除，仍然由本地服务伺服同一份 Vue 3 页面，供前端改样式/调接口时热改：
 
 ```bash
 node apps/server/dist/index.js --port 8787
 # stdout 首行：{"type":"server","port":8787,"token":"…","url":"http://127.0.0.1:8787/?token=…"}
 ```
 
-把那条 `url` 粘到浏览器（推荐用 **ego lite** 打开，和下载用的浏览器通道一致，方便对照）即可。
-
-或者直接装打包好的安装程序（见下文「打包 / 安装」）：装完点桌面图标，它会起本地服务并把 GUI 交给浏览器。
+把那条 `url` 粘到浏览器即可（推荐用 **ego lite** 打开，和下载用的浏览器通道一致，方便对照）。
 界面分 4 块：
 
-1. **输入 + 解析预览** —— 粘贴链接/分享文本，先看世代、页面类型、pageId（判定错了当场就能发现）
-2. **任务队列 + 实时进度** —— 状态、百分比、**实时速度（MB/s）**、已下载字节、**已下载段数 x/y**、
-   已处理时长、预计剩余；下载期百分比封顶 99.5%（不会「假满格」），核验阶段单独提示；可取消 / 重试
-3. **设置** —— 输出目录、命名、容器、并发、超时、通道、ffmpeg 路径；顶部显示 ffmpeg / ego lite 环境探测结果，
-   缺 ffmpeg 时黄色告警并允许手填路径
+1. **输入 + 解析预览** —— 粘贴链接/分享文本，先看世代、页面类型、pageId
+2. **任务队列 + 实时进度** —— 状态、百分比、速度、已下载字节、分片 x/y、已处理时长、预计剩余
+3. **设置** —— 与原生 GUI 同一份配置（`%APPDATA%cfun-download\config.json`）
 4. **日志 / 失败清单 / 历史** —— 失败条目带 `kind + message + suggestion`，可一键复制链接
 
-配置持久化在 `%APPDATA%\acfun-download\config.json`（仓库外，不进 git）。历史在 `%APPDATA%\acfun-download\history.json`。
+配置持久化在 `%APPDATA%cfun-download\config.json`（仓库外，不进 git）。历史在 `%APPDATA%cfun-download\history.json`。
 
 > 服务只绑 `127.0.0.1`，端口 `0`（系统分配），REST 与 SSE 都要一次性 token —— 别的进程猜不到端口，
 > 也拿不到 token。
@@ -155,36 +196,34 @@ ego lite 是单实例 + 用户真实 profile，并行会互抢标签页且更容
 | 3 | 部分或全部失败（失败条目写进 `reports/failures-<ts>.json`） |
 | 130 | 用户中断（Ctrl+C，保留 `.part`，可用 `--resume` 继续） |
 
-## 打包 / 安装（NSIS 安装程序）
+## 打包（安装包 + 便携版）
 
-GUI 是纯网页，所以"打包"= 把**运行时 + 本地服务 + 前端 + 一个只负责开浏览器的启动器**装进安装程序：
+两种形态内容完全一致（同一个 `stage()`），只差有没有安装步骤：
 
 ```bash
-pnpm package:installer
-# → dist/AcFun下载-Setup-<version>.exe（约 22MB，内含 Node 运行时）
+pnpm package:installer   # → dist/AcFun下载-Setup-<version>.exe   安装包（约 24MB）
+pnpm package:portable    # → dist/AcFun下载-<version>-portable.zip 便携版（约 35MB）
+pnpm package:all         # 两个都打
 ```
 
-**安装后怎么用**：桌面/开始菜单会出现带图标的「AcFun 下载」。点它：
+包里放什么：
 
-1. 后台启动本地服务（`127.0.0.1`、随机端口、一次性 token，`CREATE_NO_WINDOW`，没有控制台窗口）
-2. 用**默认浏览器**打开界面 —— **不唤起任何原生 UI**（没有窗口、没有托盘）
-3. 启动器自己立刻退出；再点图标只会复用已在跑的服务，不会再起第二个
-
-**停止服务**：界面右上角「退出服务」按钮，或 `"<安装目录>\AcFunDownload.exe" --shutdown`。
-
-安装细节：
-
-| 项 | 值 |
+| 文件 | 说明 |
 |---|---|
-| 安装位置 | `%LOCALAPPDATA%\Programs\AcFun下载`（按用户安装，不弹 UAC） |
-| 卸载 | 设置 →「应用」里卸载，或开始菜单「卸载 AcFun 下载」 |
-| 卸载保留 | `%APPDATA%cfun-download`（配置 / 历史 / 日志）**不删** |
-| 运行日志 | `%APPDATA%cfun-download\server.log` |
-| 内嵌 | Node 运行时（`node.exe`）、服务端单文件 bundle、前端静态资源 |
-| 不内嵌 | ffmpeg / ffprobe（必需，装好后在 PATH 里，或界面设置页填路径） |
+| `AcFunDownload.exe` | 原生 GUI（Rust + egui，约 3.6MB） |
+| `node.exe` | 内置 Node 运行时（用户不需要装 Node） |
+| `server/index.js` | 自包含本地服务（core + server 打成单文件） |
+| `web/**` | WebUI 构建产物（浏览器调试入口） |
+| `使用说明.txt` / `app.ico` | 说明与图标 |
 
-打包依赖（本机一次装好即可）：`rustc`（编译启动器）、`rc.exe`（Windows SDK，编图标资源）、
-`makensis`（NSIS 3；`winget install NSIS.NSIS`，或自动复用 Tauri 缓存里的 NSIS）。
+**安装版**：按用户安装到 `%LOCALAPPDATA%\Programs\AcFun下载`（不弹 UAC），
+建桌面/开始菜单快捷方式，控制面板可卸载；卸载保留 `%APPDATA%cfun-download`。
+卸载前会自动 `AcFunDownload.exe --shutdown`，不留后台 node。
+
+**便携版**：解压即用，不写注册表、不建快捷方式，删目录即卸载。
+
+打包依赖（本机一次装好即可）：`cargo` + MSVC Build Tools（编译 GUI）、`rc.exe`（Windows SDK，
+build.rs 自动编图标/版本资源）、`makensis`（NSIS 3；`winget install NSIS.NSIS`，或自动复用 Tauri 缓存里的 NSIS）。
 
 ## 产物
 
@@ -287,11 +326,14 @@ docs/            PLAN.md / SELFTEST.md
 ```bash
 pnpm install
 pnpm build        # core → cli → server
-pnpm test         # 141 条单测（含真实 ffmpeg 集成测试：AES-128 HLS 转封装、截断残件被拒）
+pnpm test         # 157 条单测（含真实 ffmpeg 集成测试：AES-128 HLS 转封装、截断残件被拒）
 pnpm typecheck    # 三个包的类型检查
 pnpm build:web    # 前端产物
 pnpm dev:web      # 单独调前端（vite 代理 /api 到 127.0.0.1:8787）
-pnpm package:installer  # 打 NSIS 安装程序（dist/AcFun下载-Setup-<ver>.exe）
+pnpm package:installer  # 安装包（dist/AcFun下载-Setup-<ver>.exe）
+pnpm package:portable   # 便携版（dist/AcFun下载-<ver>-portable.zip）
+cargo build --release --manifest-path packaging/launcher/Cargo.toml  # 只编 GUI
+packaging/launcher/target/release/AcFunDownload.exe --check         # GUI 无窗口自检
 ```
 
 约定：主干任一 commit 都能构建/跑单测；每个里程碑一个提交 + 一个 tag。
@@ -311,13 +353,15 @@ pnpm package:installer  # 打 NSIS 安装程序（dist/AcFun下载-Setup-<ver>.e
 | `v1.1` | 取消原生壳，改为浏览器版绿色包 + 打包脚本 + 端到端 GUI 自测 |
 | `v1.2` | NSIS 安装程序：点图标只开浏览器（无原生 UI）+ 启动器复用/关停 + 卸载验收 |
 | `v1.3` | 修复进度显示：段级真实进度 + 速度/字节/ETA，运行期封顶 99.5，不再假满格 |
+| `v1.4` | 界面改为**原生桌面 GUI**（Rust + egui）：输入/队列/设置/底栏全自绘；WebUI 保留为调试入口；交付安装包 + 便携版 |
 
-M7 原生壳已按需求取消（GUI 走浏览器）；如以后仍想做原生窗口，`docs/PLAN.md` 末尾记录了当时的取舍。
+M7 的演进：先做成 Tauri 原生壳（`v0.7` 前取消），再按需求改成「浏览器 GUI」(`v1.1`–`v1.3`)，
+最终按要求改回**真正的原生窗口**（不再用 WebView，而是 Rust + egui 自绘），见 `docs/PLAN.md` 末尾。
 
 ## 已知限制
 
 1. 仅 Windows x64。
 2. 官方站（`www.acfun.cn`）只做尽力解析，可能整段不可用。
 3. 弹幕 / 字幕未实现（实验性占位，只告警）。
-4. GUI 跑在浏览器里（本地服务 + 网页），**没有原生窗口/托盘**；安装程序内嵌 Node 运行时，点图标即用。
+4. 原生 GUI 目前**没有托盘图标**（关窗即退出并停服务）；中文字体取系统微软雅黑，系统缺中文字体时会退回默认字体。
 5. 马甲域边缘节点会随机 RST、分片签名分钟级过期 —— 都靠"整片重取清单"兜，不是无限重试。

@@ -1,9 +1,9 @@
 {
   "name": "acfun-download",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
-  "description": "AcFun 马甲域视频下载工具（CLI + Web GUI）",
+  "description": "AcFun 马甲域视频下载工具（原生桌面 GUI + WebUI + CLI）",
   "engines": {
     "node": ">=22"
   },
@@ -18,7 +18,9 @@
     "dev:server": "pnpm --filter @acfun/server dev",
     "build:web": "pnpm --filter @acfun/web build",
     "package:web": "node scripts/package-web.mjs",
-    "package:installer": "node scripts/package-installer.mjs"
+    "package:installer": "node scripts/package-installer.mjs",
+    "package:portable": "node scripts/package-portable.mjs",
+    "package:all": "node scripts/package-installer.mjs && node scripts/package-portable.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

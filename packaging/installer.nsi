@@ -2,7 +2,7 @@
 ;
 ; 设计要点：
 ;   - 按用户安装（%LOCALAPPDATA%\Programs），不弹 UAC、不写 Program Files
-;   - 装完点桌面/开始菜单图标 → AcFunDownload.exe → 只拉起本地服务并打开浏览器（无原生窗口）
+;   - 装完点桌面/开始菜单图标 → AcFunDownload.exe → 打开原生桌面窗口（Rust + egui）
 ;   - 卸载只删程序目录，保留 %APPDATA%\acfun-download 里的配置与历史
 
 Unicode true
@@ -29,7 +29,7 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 ShowInstDetails show
 ShowUninstDetails show
-BrandingText "AcFun 下载 · 浏览器 GUI"
+BrandingText "AcFun 下载 · 原生桌面应用"
 
 Icon "${ICON_FILE}"
 UninstallIcon "${ICON_FILE}"
@@ -40,7 +40,7 @@ UninstallIcon "${ICON_FILE}"
 !define MUI_WELCOMEPAGE_TITLE "AcFun 视频下载 ${APP_VERSION}"
 !define MUI_WELCOMEPAGE_TEXT "安装后会得到一个带图标的启动图标。$\r$\n$\r$\n点击它不会打开任何原生窗口，而是启动本地服务并用浏览器打开界面。$\r$\n$\r$\n需要先装好 ffmpeg（转封装与核验用，不随安装包提供）；没装也没关系，界面设置页会提示并允许手填路径。"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\AcFunDownload.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "立即打开 AcFun 下载（会在浏览器中打开界面）"
+!define MUI_FINISHPAGE_RUN_TEXT "立即打开 AcFun 下载"
 !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\使用说明.txt"
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "查看使用说明"
 

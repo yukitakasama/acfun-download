@@ -174,7 +174,7 @@ onBeforeUnmount(() => closeEvents?.());
         <span class="logo">Ac</span>
         <div>
           <h1>AcFun 视频下载</h1>
-          <p class="sub">CLI + 本地 GUI 共用同一套 core；只下载允许公开播放的内容，核验不可跳过。</p>
+          <p class="sub">WebUI（前端调试入口）· 与原生 GUI / CLI 共用同一套 core；只下载允许公开播放的内容，核验不可跳过。</p>
         </div>
       </div>
       <div class="right">

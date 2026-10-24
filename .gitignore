@@ -19,6 +19,7 @@ apps/server/dist-sidecar/
 /dist/
 # 图标的中间产物（app-icon.png / app.ico 已入库，保证打包不依赖 ffmpeg）
 packaging/launcher/build/
+packaging/launcher/target/
 *.tsbuildinfo
 
 # ---- 虚拟环境 / Python（以防后续加脚本）----

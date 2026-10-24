@@ -298,6 +298,82 @@ AcFun下载-Setup-1.0.0.exe /S /D=<临时目录>
   以及真实 ffmpeg + 限速本地 HTTP 的集成用例：进度多次推送、段数递增、仅收尾一条 100%）
 - 全量单测：**157 passed**
 
+## 用例 8：界面改造为原生桌面 GUI（v1.4）
+
+**需求**：视觉上不要 WebUI，改原生桌面应用；技术栈可用 Rust；交付**便携版 + 安装包**；
+**保留 WebUI 的测试入口**。
+
+**实现**：`packaging/launcher` 由「只开浏览器的启动器」改写为 Rust + egui 原生窗口
+（`eframe`/`egui` 0.29 + `ureq` + `rfd`），复用同目录的 `node.exe` 与服务端 bundle：
+
+```
+AcFunDownload.exe (eframe/egui) ──HTTP──▶ node server/index.js ──▶ core(TS)
+        └ 服务生命周期（拉起/复用/关停）        └ 同时伺服 web/ 给 WebUI 调试
+```
+
+- 视觉自绘：深色底 + 单一强调色、8–14px 圆角、hover 反馈、自绘进度条/开关/胶囊标签；
+  中文字体从系统加载（`ACFUN_UI_FONT` > `msyh.ttc` > `Deng.ttf` > `simhei.ttf` > `simsun.ttc`），不分发字库
+- 线程模型：一个工作线程串行处理提交/取消/重试/保存配置 + 每 300ms 轮询 `/api/tasks`，
+  UI 线程只收发消息（不用 SSE，断线自愈、永不阻塞）
+- 服务生命周期：优先复用 `server.json` 里的实例；否则用同目录 `node.exe` 拉起（`CREATE_NO_WINDOW`）；
+  关窗时只有「自己拉起的」才会 `POST /api/shutdown`
+
+### 验收 1：构建与自检
+
+```
+cargo build --release → packaging/launcher/target/release/AcFunDownload.exe（3.6MB）
+AcFunDownload.exe --check → %TEMP%cfun-gui-check.json
+{"cjkGlyphs":true,"configOk":true,"font":"C:\WINDOWS\Fonts\msyh.ttc",
+ "healthOk":true,"ok":true,"port":54667,"spawned":true,"tasksOk":true,"version":"1.4.0"}
+```
+
+`cjkGlyphs` 是用 egui `Fonts::has_glyphs("中文测试核验速度失败完成")` 的真实断言 —— 不是「猜字体装了」。
+
+### 验收 2：窗口 + 服务 + 渲染
+
+- 启动后 `MainWindowHandle != 0`，标题「AcFun 视频下载」，窗口 1100×760（150% 缩放下达 1672×1196 物理像素）
+- 窗口自动拉起本地服务：`/api/health` → `{"ok":true,"version":"1.4.0"}`，`/` 仍返回 WebUI（`index-DhVu0h2H.js`）
+- 用本地 stub 服务喂 5 种状态（下载中/核验中/完成/失败/排队，含超长标题、速度、分片、ETA），
+  窗口持续渲染 30s+ 无 panic（`panic = "abort"`，渲染路径崩了进程就没了）
+- 期间发现并修掉一个真 bug：启动时没拉 `/api/config`，设置侧栏一直停在「配置还在加载…」
+
+### 验收 3：关窗不留后台
+
+```
+关闭窗口 → GUI 进程退出；/api/health 连接被拒；node 进程数 0（自己拉起的实例被关停）
+server.json 已删除
+```
+
+### 验收 4：`--webui` 与 `--shutdown`
+
+```
+AcFunDownload.exe --webui  → 无窗口，服务就绪，webui-url.txt 写出 http://127.0.0.1:57310/?token=…
+                             health={"ok":true,"version":"1.4.0"}
+AcFunDownload.exe --shutdown → 端口关闭（health 连接被拒），server.json 清除
+```
+
+### 验收 5：安装包（NSIS 1.4.0）
+
+```
+dist/AcFun下载-Setup-1.4.0.exe（23.7MB）
+静默安装 → exit=0；控制面板 DisplayVersion=1.4.0；exe FileVersion=1.4.0.0 / Description=AcFun 下载
+启动 → 窗口打开、/api/health=1.4.0、WebUI 资源可用
+关窗 → 服务随之停止（node 进程 0）
+静默卸载 → exit=0；安装目录删除、注册表干净；%APPDATA%cfun-download 保留
+```
+
+### 验收 6：便携版（zip）
+
+```
+dist/AcFun下载-1.4.0-portable.zip（34.6MB）
+解压 → AcFunDownload.exe / node.exe / server/ / web/ / 使用说明.txt / app.ico
+AcFunDownload.exe --check → ok=true（spawned=true，自检后自行关停服务）
+```
+
+### 验收 7：回归
+
+`pnpm test` → **157 passed**；`pnpm typecheck` → 4 包 Done；`pnpm build` 全绿。
+
 ---
 
 ## 单测
